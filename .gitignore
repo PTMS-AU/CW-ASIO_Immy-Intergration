@@ -1,0 +1,35 @@
+# OS / editor noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+.history/
+*.swp
+*.swo
+*~
+
+# PowerShell
+*.ps1xml.bak
+PSScriptAnalyzer-*.log
+
+# Local scratch space — keep working notes / test credentials out of git.
+# Anything under notes/ or with a .local. suffix won't be tracked.
+notes/
+*.local.md
+*.local.ps1
+*.local.json
+*.local.txt
+
+# Test artifacts
+*.msi
+*.log
+test-output/
+
+# Secrets — belt and braces. The integration takes the secret as a runtime
+# parameter in ImmyBot, so no credential should be in any committed file. If
+# you ever need to stash credentials locally for testing, use a .local.* file.
+secrets/
+*.env
+.env.*
+client_secret*
