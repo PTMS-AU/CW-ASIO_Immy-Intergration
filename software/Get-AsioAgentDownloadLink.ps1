@@ -29,10 +29,10 @@ $Version  = "1.0.0"
 # Then upload it to your own storage (Azure Blob, S3, file share, etc.) and
 # paste the direct-download URL below.
 # ─────────────────────────────────────────────────────────────────────────────
-$URL      = "https://YOUR-STORAGE-ACCOUNT.blob.core.windows.net/PATH/TO/ITSPlatform.msi"
+$URL      = "https://YOUR-STORAGE-URL/ITSPlatform.msi"
 $FileName = "ConnectWise-Platform-BareboneAgent.msi"
 
-if ($URL -match 'YOUR-STORAGE-ACCOUNT') {
+if ($URL -match 'YOUR-STORAGE-URL') {
     throw "Get-AsioAgentDownloadLink: `$URL has not been configured. Update the URL in this script to point to your own hosted copy of the ConnectWise Platform barebone MSI."
 }
 
