@@ -16,6 +16,7 @@ endpoint URL changes for EU/US.
   automatically by reading `privateendpointid` from the registry.
 - **Deploy the ASIO agent** to managed machines, with per-tenant install tokens
   fetched at install time and passed to the MSI as `TOKEN=<guid>`.
+- **Run scripts on ASIO endpoints** (ephemeral, via schedule-tasks).
 - **Webhook receiver stub** ready for extension.
 
 ## Repo layout
@@ -41,7 +42,8 @@ The full guide is at [`docs/ConnectWise-ASIO-Integration-Guide.html`](docs/Conne
 Quick version:
 
 1. **Generate an ASIO API key** in ConnectWise: Integrations → Asio Integrations → Integrate → Generate.
-   Grant all available scopes (the integration uses six read scopes; over-granting
+   Grant all available scopes (the integration uses six read scopes plus one
+   write scope — `automation.create` for RunScript; over-granting
    on the key is harmless). Copy the secret immediately — it's only shown once.
 2. **Add the integration in ImmyBot**: Integrations → New Dynamic Integration. Paste
    `integration/ConnectWiseRMM-Integration.ps1`. Configure with the API endpoint
@@ -65,8 +67,8 @@ Quick version:
   ASIO self-updates, so the real version drifts away from any MSI bootstrapper
   version. The pack treats the agent as a binary installed/healthy check, not
   a versioned product. See the doc's §10.1 for the reasoning.
-- **OAuth tokens request the full read scope set on every call.** Not least
-  privilege. The reasoning is in the doc's §7.2 — earlier per-capability scoping
+- **OAuth tokens request the full read scope set on every call**, plus
+  `automation.create` for RunScript. See the doc's §7.2 — earlier per-capability scoping
   caused a class of "token scoped for X, endpoint gated by Y" bugs that all
   resolved cleanly when we standardised on one broad scope string.
 - **Workstations only.** The install script gates on `Win32_OperatingSystem.ProductType == 1`.
