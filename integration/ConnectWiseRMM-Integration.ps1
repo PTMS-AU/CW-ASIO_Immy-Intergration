@@ -272,47 +272,22 @@ $Integration | Add-DynamicIntegrationCapability -Interface ISupportsListingAgent
 
     Write-Host "GetAgents: collected $($collected.Count) endpoint(s) from device listing."
 
-    # --- PASS 2: online status via heartbeat ---
+
+# --- PASS 2: online status via heartbeat (resourceType=clients) ---
+    # resourceType=endpoints returns 403 Forbidden on this AU partner key, even
+    # though the spec lists it as valid and the same token reads the device
+    # listing fine. clients and sites both 200. The key's access is anchored to
+    # the client/site hierarchy, so query by company id (which we already have in
+    # $batches) and read each endpoint's Availability out of the grouped response.
+    # DO NOT "fix" this back to resourceType=endpoints — it is forbidden, not broken.
+    # clients caps at 4 ids/call, matching the PASS 1 batch size, so reuse $batches.
     $EnableHeartbeat = $true
     $onlineLookup = @{}
 
-    if ($EnableHeartbeat -and $collected.Count -gt 0) {
-        $allEndpointIds = @()
-
-        foreach ($item in $collected) {
-            $eid = $item.ep.endpointID
-            if (-not $eid) { $eid = $item.ep.endpointId }
-            if (-not $eid) { $eid = $item.ep.id }
-
-            if ($eid) {
-                $allEndpointIds += [string]$eid
-            }
-        }
-
-        Write-Host "Heartbeat: collected $($allEndpointIds.Count) endpoint id(s)."
-
-        # Keep chunks small to avoid long query strings.
-        $hbChunks = @()
-        $hbChunk = @()
-
-        foreach ($eid in $allEndpointIds) {
-            $hbChunk += $eid
-
-            if ($hbChunk.Count -eq 25) {
-                $hbChunks += ,$hbChunk
-                $hbChunk = @()
-            }
-        }
-
-        if ($hbChunk.Count -gt 0) {
-            $hbChunks += ,$hbChunk
-        }
-
-        Write-Host "Heartbeat: created $($hbChunks.Count) chunk(s)."
-
-        foreach ($chunk in $hbChunks) {
-            $hbResources = ($chunk -join ',')
-            $hbUri = "$baseUri/api/platform/v2/device/endpoints/heartbeat?resourceType=endpoints&availability=true&resources=$hbResources"
+    if ($EnableHeartbeat -and $batches.Count -gt 0) {
+        foreach ($batch in $batches) {
+            $hbResources = ($batch -join ',')
+            $hbUri = "$baseUri/api/platform/v2/device/endpoints/heartbeat?resourceType=clients&resources=$hbResources"
 
             try {
                 $hb = Invoke-RestMethod -Uri $hbUri `
@@ -321,76 +296,37 @@ $Integration | Add-DynamicIntegrationCapability -Interface ISupportsListingAgent
                     -TimeoutSec 60 `
                     -ErrorAction Stop
 
-                if ($hb -and $hb.successfulRecords) {
-                    foreach ($rec in @($hb.successfulRecords)) {
-                        $heartbeatItems = @()
+                foreach ($rec in @($hb.successfulRecords)) {
+                    foreach ($hbEp in @($rec.endpoints)) {
+                        $hbId = $hbEp.EndpointID
+                        if (-not $hbId) { $hbId = $hbEp.endpointID }
+                        if (-not $hbId) { continue }
 
-                        if ($rec.endpoints) {
-                            $heartbeatItems += @($rec.endpoints)
-                        }
-                        else {
-                            $heartbeatItems += $rec
-                        }
+                        $avail = $hbEp.Availability
+                        if ($null -eq $avail) { $avail = $hbEp.availability }
 
-                        foreach ($hbEp in $heartbeatItems) {
-                            $hbId = $hbEp.EndpointID
-                            if (-not $hbId) { $hbId = $hbEp.endpointID }
-                            if (-not $hbId) { $hbId = $hbEp.endpointId }
-                            if (-not $hbId) { $hbId = $hbEp.id }
-
-                            if (-not $hbId) {
-                                continue
-                            }
-
-                            $availability = $hbEp.Availability
-                            if ($null -eq $availability) { $availability = $hbEp.availability }
-                            if ($null -eq $availability) { $availability = $hbEp.online }
-                            if ($null -eq $availability) { $availability = $hbEp.isOnline }
-                            if ($null -eq $availability) { $availability = $hbEp.status }
-
-                            $availabilityText = "$availability"
-                            $isAvailable = $false
-
-                            if ($availability -eq $true) {
-                                $isAvailable = $true
-                            }
-                            elseif ($availabilityText -match '^(true|online|available|active|1)$') {
-                                $isAvailable = $true
-                            }
-
-                            $onlineLookup[[string]$hbId] = $isAvailable
-
-                        }
-                    }
-                }
-                else {
-                    if ($diag.Count -lt 3) {
-                        $diag += "HEARTBEAT call returned no successfulRecords. Raw response: $($hb | ConvertTo-Json -Depth 5 -Compress)"
+                        $onlineLookup[[string]$hbId] = ($avail -eq $true)
                     }
                 }
 
-                if ($hb -and $hb.failedRecords -and $diag.Count -lt 3) {
-                    $diag += "HEARTBEAT failedRecords: $($hb.failedRecords | ConvertTo-Json -Depth 5 -Compress)"
+                if ($hb.failedRecords -and @($hb.failedRecords).Count -gt 0 -and $diag.Count -lt 3) {
+                    $diag += "HEARTBEAT failedRecords for clients [$($batch -join ',')]: $($hb.failedRecords | ConvertTo-Json -Depth 5 -Compress)"
                 }
             }
             catch {
                 if ($diag.Count -lt 3) {
                     $st = try { [int]$_.Exception.Response.StatusCode } catch { '?' }
                     $bd = if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $_.ErrorDetails.Message } else { '(no body)' }
-                    $diag += "HEARTBEAT call HTTP ${st}: $bd"
+                    $diag += "HEARTBEAT call HTTP ${st} for clients [$($batch -join ',')]: $bd"
                 }
             }
         }
 
         $onlineCount = 0
-
         foreach ($key in $onlineLookup.Keys) {
-            if ($onlineLookup[$key] -eq $true) {
-                $onlineCount++
-            }
+            if ($onlineLookup[$key]) { $onlineCount++ }
         }
-
-        Write-Host "Heartbeat: online lookup contains $($onlineLookup.Count) endpoint(s); $onlineCount online."
+        Write-Host "Heartbeat: lookup contains $($onlineLookup.Count) endpoint(s); $onlineCount online."
     }
 
 # --- PASS 3: emit agents ---
@@ -437,7 +373,7 @@ foreach ($item in $collected) {
         -OSName ([string]$osName) `
         -Manufacturer ([string]$manufacturer) `
         -IsOnline:$isOnline `
-        -SupportsRunningScripts:$false
+        -SupportsRunningScripts:$true
 }
 
 Write-Host "GetAgents: emitted $emittedCount agent(s)."
@@ -687,72 +623,105 @@ Write-Host "Step 3: received response from token endpoint"
     return $resultToken
 }
 
-# =====================================================================
-# ISupportsHttpRequest — handle incoming webhooks from ConnectWise ASIO
-# =====================================================================
-# Once this capability is added, ImmyBot exposes a webhook URL at:
-#   https://<instance>.immy.bot/plugins/api/v1/<providerLinkId>
-# Configure that URL in ConnectWise RMM > Integrations > Webhooks to
-# receive alerts and events. The $body parameter receives the parsed JSON
-# payload from ConnectWise.
-#
-# This stub logs the incoming request and returns 200 OK. Extend the
-# switch block below to trigger ImmyBot actions based on event types
-# (e.g., agent-offline → schedule maintenance, alert → create ticket).
-$Integration | Add-DynamicIntegrationCapability -Interface ISupportsHttpRequest -HandleHttpRequest {
+
+$Integration | Add-DynamicIntegrationCapability -Interface IRunScriptProvider -RunScript {
     [CmdletBinding()]
-    [OutputType([Microsoft.AspNetCore.Mvc.IActionResult])]
+    [OutputType([string])]
     param(
-        [Parameter(Mandatory = $true)]
-        [Microsoft.AspNetCore.Http.HttpContext]$httpContext,
-
-        [Parameter(Mandatory = $false)]
-        $body,
-
-        [Parameter(Mandatory = $true)]
-        $route
+        [Parameter(Mandatory)]
+        [IProviderAgentDetails]$agent,
+ 
+        [Parameter(Mandatory)]
+        [string]$scriptCode,
+ 
+        [Parameter(Mandatory)]
+        [ScriptLanguage]$scriptLanguage,
+ 
+        [Parameter(Mandatory)]
+        [int]$timeout,
+ 
+        [Parameter(Mandatory)]
+        [string]$scriptPath
     )
-
-    # Log the incoming request for diagnostics.
-    $method = $httpContext.Request.Method
-    $path   = $httpContext.Request.Path
-    Write-Host "CWRMM Webhook received: $method $path"
-
-    if ($body) {
-        # ConnectWise ASIO webhook payloads typically include an event type
-        # and endpoint/device identifiers. Extend this switch as needed.
-        $eventType = $body.eventType
-        if (-not $eventType) { $eventType = $body.type }
-        if (-not $eventType) { $eventType = 'unknown' }
-
-        Write-Host "CWRMM Webhook event type: $eventType"
-
-        switch ($eventType) {
-            'agent.offline' {
-                # Example: an agent went offline — log it. Extend to trigger
-                # a maintenance session or create an alert in ImmyBot.
-                $endpointId = $body.endpointId
-                if (-not $endpointId) { $endpointId = $body.endpointID }
-                Write-Host "Agent offline event for endpoint: $endpointId"
-            }
-            'agent.online' {
-                $endpointId = $body.endpointId
-                if (-not $endpointId) { $endpointId = $body.endpointID }
-                Write-Host "Agent online event for endpoint: $endpointId"
-            }
-            'alert' {
-                Write-Host "Alert received: $($body.alertMessage ?? $body.message ?? 'no message')"
-            }
-            default {
-                Write-Host "Unhandled event type '$eventType'. Body: $($body | ConvertTo-Json -Depth 3 -Compress)"
-            }
-        }
+ 
+    # ExternalAgentId = the GUID emitted as -AgentId in GetAgents = endpoint GUID
+    # in the MANAGED_ENDPOINT space (same id the heartbeat keys on).
+    $targetEndpointId = "$($agent.ExternalAgentId)"
+    if ([string]::IsNullOrWhiteSpace($targetEndpointId)) {
+        throw "RunScript: agent.ExternalAgentId was empty; cannot target the ASIO endpoint."
     }
-
-    # Return 200 OK to acknowledge receipt.
-    $res = [ObjectResult]::new('ok')
-    $res.StatusCode = 200
-    return $res
-}
+ 
+    $baseUri      = $IntegrationContext.ApiEndpoint
+    $clientId     = $IntegrationContext.ClientId
+    $clientSecret = $IntegrationContext.ClientSecret
+ 
+    # --- Token (same broad read-scope string as every other block) ---
+    $tokenBody = @{
+        grant_type    = "client_credentials"
+        client_id     = $clientId
+        client_secret = "$clientSecret"
+        scope = "platform.companies.read platform.sites.read platform.devices.read platform.agent-token.read platform.asset.read platform.agent.read platform.automation.read platform.automation.create"
+    } | ConvertTo-Json -Depth 5
+ 
+    $token = Invoke-RestMethod -Uri "$baseUri/v1/token" -Method Post -Body $tokenBody `
+        -ContentType "application/json" -TimeoutSec 30 -ErrorAction Stop
+ 
+    if (-not $token.access_token) {
+        throw "RunScript: token endpoint returned no access_token."
+    }
+ 
+    $headers = @{
+        Authorization  = "Bearer $($token.access_token)"
+        Accept         = "application/json"
+        "Content-Type" = "application/json"
+    }
+ 
+    # --- Inner parameters: a JSON STRING, per the runner template's jsonSchema ---
+    # Both keys required; additionalProperties:false, so add nothing else.
+    # $timeout arrives in seconds and maps straight onto expectedExecutionTimeSec.
+    $innerParams = @{
+        body                     = $scriptCode
+        expectedExecutionTimeSec = $timeout
+    } | ConvertTo-Json -Depth 5 -Compress
+ 
+    # --- Outer body: mirrors the working Rewst run_powershell template ---
+    # $innerParams is assigned as a string; ConvertTo-Json on the outer object
+    # serialises it as an escaped JSON string (the double-encoding ASIO expects).
+    $outerJson = @{
+        name          = "ImmyBot RunScript"
+        targets       = @($targetEndpointId)
+        schedule      = @{
+            repeat         = $null
+            endDate        = $null
+            category       = "STZ"
+            timeZone       = $null
+            startDate      = $null
+            regularity     = "Immediate"
+            endDateType    = $null
+            triggerType    = $null
+            endTimeFrame   = $null
+            scheduleType   = "TIME"
+            timeFrameType  = $null
+            startTimeFrame = $null
+        }
+        parameters    = $innerParams        # already a string — do NOT re-wrap
+        targetType    = "MANAGED_ENDPOINT"
+        templateID    = "51a74346-e19b-11e7-9809-0800279505d9"
+        description   = $null
+        templateType  = "script"
+        resourcesType = "Both"
+    } | ConvertTo-Json -Depth 8
+ 
+    $resp = Invoke-RestMethod -Uri "$baseUri/api/platform/v2/automation/endpoints/schedule-tasks" `
+        -Headers $headers -Method Post -Body $outerJson `
+        -ContentType "application/json" -TimeoutSec 60 -ErrorAction Stop
+ 
+    Write-Host "CW RMM RunScript dispatched to $targetEndpointId. taskId=$($resp.taskId) state=$($resp.stateToBeSubmitted)"
+ 
+    # Fire-and-forget: the 201 means ACCEPTED. ImmyBot's bootstrap connects back to
+    # ImmyBot out-of-band, so no ASIO task-result polling is needed here.
+    return "$($resp.taskId)"
+ 
+} -get_DefaultTimeout { 600 }
 
 $Integration
