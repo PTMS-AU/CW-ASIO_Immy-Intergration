@@ -1,0 +1,111 @@
+---
+layout: default
+title: CW-ASIO ImmyBot Integration Guide
+---
+
+<h1>ConnectWise RMM (ASIO) — ImmyBot Integration</h1>
+
+<p>
+  An ImmyBot Dynamic Integration and software package that lets ImmyBot deploy
+  and manage the ConnectWise RMM (ASIO Partner Platform) agent on Windows
+  endpoints. Built and tested against the <strong>AU</strong> region.
+</p>
+
+<hr>
+
+<h2>📄 Full Integration Guide</h2>
+<ul>
+  <li>
+    <a href="docs/index.html">
+      ConnectWise ASIO Integration Guide
+    </a>
+    — step-by-step setup, configuration, and troubleshooting
+  </li>
+</ul>
+
+<hr>
+
+<h2>🔗 Integration Script</h2>
+<p>Paste this into <strong>Integrations → New Dynamic Integration</strong> in ImmyBot.</p>
+<table>
+  <thead>
+    <tr><th>Script</th><th>Paste Into</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="integration/ConnectWiseRMM-Integration.ps1">ConnectWiseRMM-Integration.ps1</a></td>
+      <td>Integrations → New Dynamic Integration</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2>📦 Software Package Scripts</h2>
+<p>Paste each script into the corresponding slot when creating the Software entry in ImmyBot.</p>
+<table>
+  <thead>
+    <tr><th>Script</th><th>Paste Into</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="software/Detect-Asio.ps1">Detect-Asio.ps1</a></td>
+      <td>Software → Custom Detection Script</td>
+    </tr>
+    <tr>
+      <td><a href="software/Get-AsioAgentDownloadLink.ps1">Get-AsioAgentDownloadLink.ps1</a></td>
+      <td>Software → Dynamic Versions</td>
+    </tr>
+    <tr>
+      <td><a href="software/Install-Asio.ps1">Install-Asio.ps1</a></td>
+      <td>Software → Install Script</td>
+    </tr>
+    <tr>
+      <td><a href="software/Test-Asio.ps1">Test-Asio.ps1</a></td>
+      <td>Software → Test Script</td>
+    </tr>
+    <tr>
+      <td><a href="software/Uninstall-Asio.ps1">Uninstall-Asio.ps1</a></td>
+      <td>Software → Uninstall Script</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2>🚀 Quick Start</h2>
+<ol>
+  <li>
+    <strong>Generate an ASIO API key</strong> in ConnectWise:
+    Integrations → Asio Integrations → Integrate → Generate.
+    Grant all available scopes. Copy the secret immediately — it is only shown once.
+  </li>
+  <li>
+    <strong>Add the integration in ImmyBot</strong>:
+    Integrations → New Dynamic Integration. Paste
+    <a href="integration/ConnectWiseRMM-Integration.ps1">ConnectWiseRMM-Integration.ps1</a>.
+    Configure with the API endpoint URL, Client ID, and Client Secret. Initialise — it should go Healthy.
+  </li>
+  <li>
+    <strong>Map tenants to companies</strong>:
+    Integration → Clients tab. Each ImmyBot tenant needs to be mapped to a ConnectWise company.
+  </li>
+  <li>
+    <strong>Create the software entry</strong>:
+    Paste each <code>software/*.ps1</code> script into its slot per the table above.
+    Under Advanced, set Agent Integration to the integration you created in step 2.
+    Set Uninstall's Detection String to <code>SaazOnDemand|ITSPlatform</code>.
+  </li>
+  <li>
+    <strong>Deploy</strong> to a test machine. Confirm it installs, registers, and shows up as an agent.
+  </li>
+</ol>
+
+<hr>
+
+<h2>📚 Other Resources</h2>
+<ul>
+  <li><a href="README.md">README</a> — project overview and repo layout</li>
+  <li><a href="CONTRIBUTING.md">Contributing Guide</a> — workflow for updating scripts</li>
+  <li><a href="LICENSE">License</a></li>
+</ul>

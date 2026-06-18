@@ -1,0 +1,5 @@
+title: ConnectWise RMM (ASIO) — ImmyBot Integration
+description: An ImmyBot Dynamic Integration and software package for deploying and managing the ConnectWise RMM (ASIO) agent on Windows endpoints.
+remote_theme: pages-themes/midnight@v0.2.0
+plugins:
+  - jekyll-remote-theme
