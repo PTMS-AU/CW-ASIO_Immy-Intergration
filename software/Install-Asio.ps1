@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    ImmyBot Software Action: install the ConnectWise RMM (ASIO / ITSPlatform) agent.
+    ImmyBot Software Action: install the ConnectWise Platform (ITSPlatform) agent.
 
 .DESCRIPTION
     Installs the generic barebone MSI downloaded by ImmyBot.
@@ -16,7 +16,7 @@
         SYSTEM=desktop
 
     Servers are intentionally blocked for now. Create a separate server software
-    package/deployment after validating the correct ConnectWise ASIO server
+    package/deployment after validating the correct ConnectWise Platform server
     install property.
 #>
 
@@ -60,13 +60,13 @@ Invoke-ImmyCommand {
     $OS = Get-CimInstance Win32_OperatingSystem
 
     if ($OS.ProductType -ne 1) {
-        throw "ASIO install blocked. This script is workstation-only. ProductType=$($OS.ProductType)"
+        throw "ConnectWise Platform install blocked. This script is workstation-only. ProductType=$($OS.ProductType)"
     }
 
     $SystemType = "desktop"
-    Write-Host "Confirmed workstation OS. Using ASIO SYSTEM=$SystemType"
+    Write-Host "Confirmed workstation OS. Using SYSTEM=$SystemType"
 
-    $LogPath = Join-Path $env:TEMP "ConnectWise-ASIO-install.log"
+    $LogPath = Join-Path $env:TEMP "ConnectWise-Platform-install.log"
 
     $Arguments = @(
         "/i"
@@ -89,7 +89,7 @@ Invoke-ImmyCommand {
     Write-Host "msiexec exit code: $($Process.ExitCode)"
 
     if ($Process.ExitCode -notin @(0, 3010, 1641)) {
-        throw "ASIO MSI install failed with exit code $($Process.ExitCode). Log: $LogPath"
+        throw "ConnectWise Platform MSI install failed with exit code $($Process.ExitCode). Log: $LogPath"
     }
 
     return [PSCustomObject]@{

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    ImmyBot Dynamic Integration for ConnectWise RMM (ASIO Partner Platform).
+    ImmyBot Dynamic Integration for ConnectWise Platform.
 
 .DESCRIPTION
     Built on the PROVEN working auth flow: OAuth2 client_credentials exchange at
@@ -11,11 +11,11 @@
     Self-contained (no separate module required), mirroring the structure of the
     working GetClients implementation.
 
-    Client mapping: ImmyBot tenants map to ConnectWise COMPANIES (companies are the
+    Client mapping: ImmyBot tenants map to ConnectWise Platform COMPANIES (companies are the
     top-level client returned by /company/companies). Devices are then pulled per
     company. (If you prefer site-level mapping, that's a variant we can switch to.)
 
-    Credentials (ConnectWise RMM > Asio Integrations > Generate):
+    Credentials (ConnectWise Platform > Platform Integrations > Generate):
       - API Endpoint URL (regional gateway; AU = https://openapi.service.auplatform.connectwise.com)
       - Client ID
       - Client Secret
@@ -100,12 +100,12 @@ $Integration = New-DynamicIntegration -Init {
     }
     catch {
         $detail = if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $_.ErrorDetails.Message } else { $_.Exception.Message }
-        return New-UnhealthyResult -Message "ConnectWise RMM health check failed: $detail"
+        return New-UnhealthyResult -Message "ConnectWise Platform health check failed: $detail"
     }
 }
 
 # =====================================================================
-# ISupportsListingClients — list ConnectWise companies as ImmyBot clients
+# ISupportsListingClients — list ConnectWise Platform companies as ImmyBot clients
 # =====================================================================
 $Integration | Add-DynamicIntegrationCapability -Interface ISupportsListingClients -GetClients {
     [CmdletBinding()]
@@ -179,7 +179,7 @@ $Integration | Add-DynamicIntegrationCapability -Interface ISupportsListingAgent
         -ErrorAction Stop
 
     if (-not $token.access_token) {
-        throw "ConnectWise RMM token endpoint returned no access_token."
+        throw "ConnectWise Platform token endpoint returned no access_token."
     }
 
     $headers = @{
@@ -501,7 +501,7 @@ Write-Host "GetTenantInstallToken invoked. clientId=[$clientId]"
     # Site selection strategy for multi-site companies:
     #   - If only one site: use it.
     #   - If multiple: prefer the site matching the company name (the "default" site
-    #     ConnectWise creates), then fall back to the first site.
+    #     ConnectWise Platform creates), then fall back to the first site.
     #   - Override: set $PreferredSiteName below to force a specific site name.
     $PreferredSiteName = $null  # e.g. "Main Office" — set to force a site choice
     Write-Host "Step 2: looking up sites for company $MappedCompanyId"
@@ -527,7 +527,7 @@ Write-Host "GetTenantInstallToken invoked. clientId=[$clientId]"
         Write-Host "Step 2: found $siteCount site(s) for company $MappedCompanyId"
 
         if ($siteCount -eq 0) {
-            throw "No sites found for company $MappedCompanyId. Verify the company exists in CW RMM and has at least one site."
+            throw "No sites found for company $MappedCompanyId. Verify the company exists in ConnectWise Platform and has at least one site."
         }
 
         $chosenSite = $null
@@ -540,7 +540,7 @@ Write-Host "GetTenantInstallToken invoked. clientId=[$clientId]"
             }
         }
 
-        # Try matching the company name (ConnectWise default site naming).
+        # Try matching the company name (ConnectWise Platform default site naming).
         if (-not $chosenSite -and $siteCount -gt 1) {
             # Look up the company name for matching.
             $companyName = $null
@@ -648,7 +648,7 @@ $Integration | Add-DynamicIntegrationCapability -Interface IRunScriptProvider -R
     # in the MANAGED_ENDPOINT space (same id the heartbeat keys on).
     $targetEndpointId = "$($agent.ExternalAgentId)"
     if ([string]::IsNullOrWhiteSpace($targetEndpointId)) {
-        throw "RunScript: agent.ExternalAgentId was empty; cannot target the ASIO endpoint."
+        throw "RunScript: agent.ExternalAgentId was empty; cannot target the ConnectWise Platform endpoint."
     }
  
     $baseUri      = $IntegrationContext.ApiEndpoint
@@ -686,7 +686,7 @@ $Integration | Add-DynamicIntegrationCapability -Interface IRunScriptProvider -R
  
     # --- Outer body: mirrors the working Rewst run_powershell template ---
     # $innerParams is assigned as a string; ConvertTo-Json on the outer object
-    # serialises it as an escaped JSON string (the double-encoding ASIO expects).
+    # serialises it as an escaped JSON string (the double-encoding ConnectWise Platform expects).
     $outerJson = @{
         name          = "ImmyBot RunScript"
         targets       = @($targetEndpointId)
@@ -719,7 +719,7 @@ $Integration | Add-DynamicIntegrationCapability -Interface IRunScriptProvider -R
     Write-Host "CW RMM RunScript dispatched to $targetEndpointId. taskId=$($resp.taskId) state=$($resp.stateToBeSubmitted)"
  
     # Fire-and-forget: the 201 means ACCEPTED. ImmyBot's bootstrap connects back to
-    # ImmyBot out-of-band, so no ASIO task-result polling is needed here.
+    # ImmyBot out-of-band, so no ConnectWise Platform task-result polling is needed here.
     return "$($resp.taskId)"
  
 } -get_DefaultTimeout { 600 }

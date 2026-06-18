@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
-    ImmyBot custom detection script for ConnectWise RMM (ASIO / ITSPlatform).
+    ImmyBot custom detection script for ConnectWise Platform (ITSPlatform).
 
 .DESCRIPTION
-    ASIO agents self-update, so we do not return the real installed agent version.
-    Returning the real version can cause ImmyBot to compare it against the MSI
-    bootstrapper version and attempt a downgrade.
+    The ConnectWise Platform agent self-updates, so we do not return the real
+    installed agent version. Returning the real version can cause ImmyBot to
+    compare it against the MSI bootstrapper version and attempt a downgrade.
 
-    Returns 1.0.0 when the ASIO agent is installed, running, and registered.
+    Returns 1.0.0 when the agent is installed, running, and registered.
     Returns nothing when the agent is missing or unhealthy.
 #>
 
@@ -33,9 +33,9 @@ foreach ($path in $paths) {
 }
 
 if ($service -and $service.Status -eq "Running" -and $privateEndpointId) {
-    Write-Host "ConnectWise ASIO agent detected, running, and registered. EndpointId: $privateEndpointId"
+    Write-Host "ConnectWise Platform agent detected, running, and registered. EndpointId: $privateEndpointId"
     return $PolicyVersion
 }
 
-Write-Host "ConnectWise ASIO agent not detected, not running, or not registered."
+Write-Host "ConnectWise Platform agent not detected, not running, or not registered."
 return $null

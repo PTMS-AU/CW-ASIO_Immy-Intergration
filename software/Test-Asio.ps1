@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    ImmyBot test script for ConnectWise RMM ASIO / ITSPlatform.
+    ImmyBot test script for ConnectWise Platform / ITSPlatform.
 
 .DESCRIPTION
-    Verifies the ASIO agent is installed, running, and registered.
+    Verifies the ConnectWise Platform agent is installed, running, and registered.
 
     Returns $true when healthy.
     Throws when unhealthy.
@@ -66,16 +66,16 @@ do {
     }
 
     if ($svc -and $svc.Status -eq 'Running' -and $privateEndpointId) {
-        Write-Host "ConnectWise RMM ASIO agent test passed. EndpointId: $privateEndpointId"
+        Write-Host "ConnectWise Platform agent test passed. EndpointId: $privateEndpointId"
         return $true
     }
 
     $lastReasons = $reasons
 
-    Write-Host "ASIO agent not healthy yet: $($reasons -join '; ')"
+    Write-Host "ConnectWise Platform agent not healthy yet: $($reasons -join '; ')"
     Write-Host "Waiting $SleepSeconds seconds before retrying..."
     Start-Sleep -Seconds $SleepSeconds
 
 } while ((Get-Date) -lt $Deadline)
 
-throw "ConnectWise RMM ASIO agent test failed after $TimeoutMinutes minutes: $($lastReasons -join '; ')"
+throw "ConnectWise Platform agent test failed after $TimeoutMinutes minutes: $($lastReasons -join '; ')"

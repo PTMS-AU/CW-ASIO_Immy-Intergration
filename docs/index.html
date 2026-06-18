@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ConnectWise RMM (ASIO) — ImmyBot Integration</title>
+<title>ConnectWise Platform — ImmyBot Integration</title>
 <style>
   :root {
     --fg: #1b1f24;
@@ -96,8 +96,8 @@
 
 <header class="page">
   <div class="eyebrow">ImmyBot Integration · Platinum Technology</div>
-  <h1>ConnectWise RMM (ASIO) — Deployment &amp; Operations Guide</h1>
-  <p>How to install, configure, and troubleshoot the ImmyBot integration for ConnectWise RMM (ASIO Partner Platform). Covers the integration script, the software package, the underlying API contract, and the trade-offs we made.</p>
+  <h1>ConnectWise Platform — Deployment &amp; Operations Guide</h1>
+  <p>How to install, configure, and troubleshoot the ImmyBot integration for ConnectWise Platform. Covers the integration script, the software package, the underlying API contract, and the trade-offs we made.</p>
 </header>
 
 <nav class="toc panel">
@@ -107,7 +107,7 @@
     <li><a href="#prereqs">Prerequisites</a></li>
     <li><a href="#install-integration">Installing the integration</a></li>
     <li><a href="#install-software">Installing the software package</a></li>
-    <li><a href="#mapping">Mapping tenants to ConnectWise companies</a></li>
+    <li><a href="#mapping">Mapping tenants to ConnectWise Platform companies</a></li>
     <li><a href="#capabilities">Capabilities provided</a></li>
     <li><a href="#scopes">API scopes and auth model</a></li>
     <li><a href="#installer-hosting">Installer hosting</a></li>
@@ -119,27 +119,27 @@
 
 <!-- ============================================================ -->
 <h2 id="overview">1. Overview</h2>
-<p>This integration connects ImmyBot to ConnectWise RMM (the platform formerly known as Continuum/Command, now branded as ASIO) so that:</p>
+<p>This integration connects ImmyBot to ConnectWise Platform (formerly known as Continuum/Command/ASIO) so that:</p>
 <ul>
-  <li>ConnectWise companies show up in ImmyBot as clients, mappable to ImmyBot tenants.</li>
-  <li>ConnectWise-managed endpoints surface as agents with live online status (via the ASIO heartbeat endpoint).</li>
-  <li>An ImmyBot computer can be matched to its ConnectWise endpoint automatically (inventory identification).</li>
-  <li>The ConnectWise ASIO agent itself can be deployed by ImmyBot, with per-tenant install tokens fetched at install time.</li>
+  <li>ConnectWise Platform companies show up in ImmyBot as clients, mappable to ImmyBot tenants.</li>
+  <li>ConnectWise Platform-managed endpoints surface as agents with live online status (via the heartbeat endpoint).</li>
+  <li>An ImmyBot computer can be matched to its ConnectWise Platform endpoint automatically (inventory identification).</li>
+  <li>The ConnectWise Platform agent itself can be deployed by ImmyBot, with per-tenant install tokens fetched at install time.</li>
 </ul>
 
 <p>It is built as a self-contained ImmyBot Dynamic Integration script — one PowerShell file, no external module — paired with a software package consisting of detection, dynamic-versions, install, uninstall, and test scripts.</p>
 
 <div class="callout">
-  <p><strong>Regional note.</strong> This deployment targets the <em>Australia</em> ASIO region (<code>openapi.service.auplatform.connectwise.com</code>). The integration works regionally — only the <code>API Endpoint URL</code> field changes for other regions (EU/US).</p>
+  <p><strong>Regional note.</strong> This deployment targets the <em>Australia</em> region (<code>openapi.service.auplatform.connectwise.com</code>). The integration works regionally — only the <code>API Endpoint URL</code> field changes for other regions (EU/US).</p>
 </div>
 
 <!-- ============================================================ -->
 <h2 id="prereqs">2. Prerequisites</h2>
 
-<h3>2.1 ConnectWise side</h3>
+<h3>2.1 ConnectWise Platform side</h3>
 <ul>
-  <li>An ASIO partner account with API access enabled.</li>
-  <li>An ASIO Integration key (Client ID + Client Secret) generated under <strong>Integrations → Asio Integrations → Integrate → Generate</strong>.</li>
+  <li>A ConnectWise Platform partner account with API access enabled.</li>
+  <li>A Platform Integration key (Client ID + Client Secret) generated under <strong>Integrations → API Access → Generate API Access</strong>.</li>
   <li>The API key must have the following OAuth scopes granted:
     <ul>
       <li><code>platform.companies.read</code></li>
@@ -154,13 +154,24 @@
   </li>
 </ul>
 
-<h3>2.2 ImmyBot side</h3>
+<h3>2.2 Installer MSI hosting</h3>
+<div class="callout warn">
+  <p><strong>You must host the barebone MSI yourself.</strong> ConnectWise Platform's generic download URL uses a redirect chain that ImmyBot's downloader cannot follow. You need to download the MSI once, upload it to your own storage, and paste the direct-download URL into the <code>Get-AsioAgentDownloadLink.ps1</code> script.</p>
+  <ol>
+    <li>Download the current generic MSI from <code>https://setup.auplatform.connectwise.com/windows/BareboneAgent/32/ITSagent/MSI/setup</code> (use a browser or <code>curl -L</code> to follow redirects).</li>
+    <li>Upload it to your own storage — Azure Blob Storage, AWS S3, a public file share, or any location that serves a direct-download URL.</li>
+    <li>Open <code>software/Get-AsioAgentDownloadLink.ps1</code> and replace the placeholder <code>$URL</code> value with your direct-download URL.</li>
+  </ol>
+  <p>Recommend refreshing the hosted MSI on a quarterly cadence, or whenever ConnectWise Platform announces an agent update. The agent self-updates after install, so a slightly stale bootstrapper is not harmful — but very old versions may fail to bootstrap.</p>
+</div>
+
+<h3>2.3 ImmyBot side</h3>
 <ul>
   <li>ImmyBot instance with access to the <strong>Integrations</strong> area.</li>
   <li>Permission to create and edit Software entries and Deployments.</li>
 </ul>
 
-<h3>2.3 Files</h3>
+<h3>2.4 Files</h3>
 <table>
   <tr><th>File</th><th>Where it goes</th><th>Purpose</th></tr>
   <tr><td><code>ConnectWiseRMM-Integration.ps1</code></td><td>Integrations → New Dynamic Integration</td><td>The integration itself.</td></tr>
@@ -175,35 +186,35 @@
 <h2 id="install-integration">3. Installing the integration</h2>
 
 <ol>
-  <li>In ConnectWise ASIO, generate a Client ID and Client Secret with the scopes listed in <a href="#prereqs">§2</a>. <strong>Copy the secret immediately</strong> — ASIO only shows it once.</li>
+  <li>In ConnectWise Platform, generate a Client ID and Client Secret with the scopes listed in <a href="#prereqs">§2</a>. <strong>Copy the secret immediately</strong> — it is only shown once.</li>
   <li>In ImmyBot, go to <strong>Integrations → New Dynamic Integration</strong>.</li>
-  <li>Paste the contents of <code>ConnectWiseRMM-Integration.ps1</code> as the integration script. Give it a recognisable name (e.g. <em>Connectwise ASIO</em>).</li>
+  <li>Paste the contents of <code>ConnectWiseRMM-Integration.ps1</code> as the integration script. Give it a recognisable name (e.g. <em>ConnectWise Platform</em>).</li>
   <li>Configure the three integration parameters:
     <table>
       <tr><th>Parameter</th><th>Value (AU region)</th></tr>
       <tr><td>API Endpoint URL</td><td><code>https://openapi.service.auplatform.connectwise.com</code></td></tr>
-      <tr><td>Client ID</td><td>From ASIO key generation</td></tr>
-      <tr><td>Client Secret</td><td>From ASIO key generation</td></tr>
+      <tr><td>Client ID</td><td>From Platform key generation</td></tr>
+      <tr><td>Client Secret</td><td>From Platform key generation</td></tr>
     </table>
   </li>
   <li>Save and initialise. The integration's HealthCheck performs an OAuth token exchange <em>and</em> one companies read — if it goes <span class="badge ok">Healthy</span>, the credentials and scopes are confirmed good.</li>
 </ol>
 
 <div class="callout warn">
-  <p><strong>If HealthCheck fails</strong> with a token error, see <a href="#troubleshooting">Troubleshooting</a>. The most common cause is a missing scope or a secret that wasn't copied completely from the ASIO UI.</p>
+  <p><strong>If HealthCheck fails</strong> with a token error, see <a href="#troubleshooting">Troubleshooting</a>. The most common cause is a missing scope or a secret that wasn't copied completely from the ConnectWise Platform UI.</p>
 </div>
 
 <!-- ============================================================ -->
 <h2 id="install-software">4. Installing the software package</h2>
 
-<p>Create a new Software entry in ImmyBot called <strong>ConnectWise RMM (Asio)</strong> (or similar). Then configure each section:</p>
+<p>Create a new Software entry in ImmyBot called <strong>ConnectWise Platform</strong> (or similar). Then configure each section:</p>
 
 <h3>4.1 Detection</h3>
 <ul>
   <li>Detection Method: <strong>Custom Detection Script</strong></li>
   <li>Script: paste <code>Detect-Asio.ps1</code></li>
 </ul>
-<p>The detection script returns a fixed <code>1.0.0</code> when the ASIO agent is installed, the <code>ITSPlatform</code> service is running, and the registry contains a populated <code>privateendpointid</code> (proving the agent is registered with ConnectWise). Anything else returns <code>$null</code> — meaning ImmyBot will treat the machine as "not installed" and remediate.</p>
+<p>The detection script returns a fixed <code>1.0.0</code> when the ConnectWise Platform agent is installed, the <code>ITSPlatform</code> service is running, and the registry contains a populated <code>privateendpointid</code> (proving the agent is registered with ConnectWise Platform). Anything else returns <code>$null</code> — meaning ImmyBot will treat the machine as "not installed" and remediate.</p>
 
 <h3>4.2 Dynamic Versions</h3>
 <ul>
@@ -211,11 +222,11 @@
   <li>Script: paste <code>Get-AsioAgentDownloadLink.ps1</code></li>
   <li>Desired Version: <strong>Latest</strong></li>
 </ul>
-<p>This script returns a fixed version of <code>1.0.0</code> paired with the generic (non-tokenized) barebone MSI URL. Both detection and desired version agree on <code>1.0.0</code>, so once installed, the machine reports compliant and stays compliant — ASIO updates the agent itself in the background.</p>
+<p>This script returns a fixed version of <code>1.0.0</code> paired with a barebone MSI URL that <strong>you must configure</strong> (see <a href="#prereqs">§2.2</a>). Both detection and desired version agree on <code>1.0.0</code>, so once installed, the machine reports compliant and stays compliant — the agent updates itself in the background.</p>
 
 <h3>4.3 Agent Integration</h3>
 <ul>
-  <li>Under <strong>Advanced</strong>, set <strong>Agent Integration</strong> = your <em>Connectwise ASIO</em> integration.</li>
+  <li>Under <strong>Advanced</strong>, set <strong>Agent Integration</strong> = your <em>ConnectWise Platform</em> integration.</li>
 </ul>
 <p>This is the link that lets the install script call <code>Get-IntegrationAgentInstallToken</code>. Without it, installs fail with "Get-IntegrationAgentInstallToken returned nothing."</p>
 
@@ -230,15 +241,15 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
 <h3>4.6 Test Script</h3>
 <ul>
   <li>Enable <strong>Test Required</strong></li>
-  <li>Test failed error: <code>ITSPlatform service not running or agent not registered with ASIO</code></li>
+  <li>Test failed error: <code>ITSPlatform service not running or agent not registered with ConnectWise Platform</code></li>
   <li>Test Script: paste <code>Test-Asio.ps1</code></li>
 </ul>
 <p>The test loops for up to 5 minutes after install, retrying every 15 seconds and attempting to start the service if it's not running yet. It only passes when <em>both</em> the service is Running <em>and</em> <code>privateendpointid</code> is populated.</p>
 
 <!-- ============================================================ -->
-<h2 id="mapping">5. Mapping tenants to ConnectWise companies</h2>
+<h2 id="mapping">5. Mapping tenants to ConnectWise Platform companies</h2>
 
-<p>After the integration goes Healthy, ImmyBot pulls the ConnectWise company list. Go to <strong>Integration → Clients</strong> tab and map each ImmyBot tenant to its corresponding ConnectWise company.</p>
+<p>After the integration goes Healthy, ImmyBot pulls the ConnectWise Platform company list. Go to <strong>Integration → Clients</strong> tab and map each ImmyBot tenant to its corresponding ConnectWise Platform company.</p>
 
 <div class="callout">
   <p><strong>Why this matters.</strong> The install-token capability uses the mapped company ID to generate a tenant-scoped install token. If a tenant isn't mapped, the install script throws <em>"GetTenantInstallToken received no mapped company id."</em></p>
@@ -250,11 +261,11 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
 <h2 id="capabilities">6. Capabilities provided</h2>
 <table>
   <tr><th>ImmyBot interface</th><th>What it does</th><th>API endpoint</th></tr>
-  <tr><td><code>ISupportsListingClients</code></td><td>Lists ConnectWise companies as available clients</td><td><code>GET /api/platform/v1/company/companies</code></td></tr>
+  <tr><td><code>ISupportsListingClients</code></td><td>Lists ConnectWise Platform companies as available clients</td><td><code>GET /api/platform/v1/company/companies</code></td></tr>
   <tr><td><code>ISupportsListingAgents</code></td><td>Lists endpoints for mapped companies, with online status from heartbeat</td><td><code>GET /api/platform/v2/device/categories/platform/endpoints</code>, <code>GET /api/platform/v2/device/endpoints/heartbeat</code></td></tr>
-  <tr><td><code>ISupportsInventoryIdentification</code></td><td>Matches an ImmyBot computer to its ASIO endpoint by reading <code>privateendpointid</code> from the registry</td><td>Local registry — no API call</td></tr>
+  <tr><td><code>ISupportsInventoryIdentification</code></td><td>Matches an ImmyBot computer to its ConnectWise Platform endpoint by reading <code>privateendpointid</code> from the registry</td><td>Local registry — no API call</td></tr>
   <tr><td><code>ISupportsTenantInstallToken</code></td><td>Mints a per-tenant install token for the agent MSI</td><td><code>GET /companies/{id}/sites</code>, <code>POST /api/platform/v1/device/token</code></td></tr>
-  <tr><td><code>IRunScriptProvider</code></td><td>Runs scripts on ASIO endpoints (ephemeral, via schedule-tasks)</td><td><code>POST /api/platform/v2/automation/endpoints/schedule-tasks</code></td></tr>
+  <tr><td><code>IRunScriptProvider</code></td><td>Runs scripts on ConnectWise Platform endpoints (ephemeral, via schedule-tasks)</td><td><code>POST /api/platform/v2/automation/endpoints/schedule-tasks</code></td></tr>
   <tr><td><code>ISupportsHttpRequest</code></td><td>Webhook receiver (stub — logs incoming events, no actions wired yet)</td><td>Inbound only</td></tr>
 </table>
 
@@ -282,22 +293,23 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
 <!-- ============================================================ -->
 <h2 id="installer-hosting">8. Installer hosting</h2>
 
-<p>The dynamic-versions script returns this download URL:</p>
-<pre><code>https://platinumfilestorage.blob.core.windows.net/installer/asio/ITSPlatform.msi</code></pre>
+<p>The dynamic-versions script returns a download URL that <strong>you must configure</strong> to point to your own hosted copy of the ConnectWise Platform barebone MSI.</p>
 
-<p>This is <strong>our own Azure Blob Storage mirror</strong> of the ConnectWise generic barebone MSI, not ConnectWise's CDN. The original ConnectWise URL —</p>
+<p>ConnectWise Platform's original generic download URL —</p>
 <pre><code>https://setup.auplatform.connectwise.com/windows/BareboneAgent/32/ITSagent/MSI/setup</code></pre>
 
-<p>— serves the file via a redirect chain that ImmyBot's downloader doesn't follow cleanly, causing install actions to fail to retrieve the MSI.</p>
+<p>— serves the file via a redirect chain that ImmyBot's downloader doesn't follow cleanly, causing install actions to fail to retrieve the MSI. This is why you need to host the file yourself on storage that provides a direct-download URL (Azure Blob Storage, AWS S3, a web server, etc.).</p>
 
+<h3>8.1 Setup</h3>
+<ol>
+  <li>Download the current generic MSI from the URL above (use a browser or <code>curl -L</code> to follow redirects).</li>
+  <li>Upload it to your own storage.</li>
+  <li>Open <code>software/Get-AsioAgentDownloadLink.ps1</code> and replace the placeholder <code>$URL</code> value with your direct-download URL.</li>
+</ol>
+
+<h3>8.2 Keeping the MSI fresh</h3>
 <div class="callout warn">
-  <p><strong>This is a maintenance dependency.</strong> If ConnectWise releases a new barebone installer and we don't refresh the blob, deployments will silently install stale bootstrappers. Refresh process:</p>
-  <ol>
-    <li>Download the current generic MSI from <code>setup.auplatform.connectwise.com/windows/BareboneAgent/32/ITSagent/MSI/setup</code> (use a browser or <code>curl -L</code> to follow redirects).</li>
-    <li>Upload to the blob container, replacing the existing <code>ITSPlatform.msi</code>.</li>
-    <li>No script changes required — the URL is constant.</li>
-  </ol>
-  <p>Recommend doing this on a quarterly cadence, or whenever ConnectWise announces an agent update.</p>
+  <p><strong>This is a maintenance dependency.</strong> If ConnectWise Platform releases a new barebone installer and you don't refresh your hosted copy, deployments will install an older bootstrapper. The agent self-updates after install, so a slightly stale MSI is not harmful — but very old versions may fail to bootstrap. Recommend refreshing quarterly or whenever ConnectWise Platform announces an agent update.</p>
 </div>
 
 <!-- ============================================================ -->
@@ -306,17 +318,17 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
 <h3>9.1 Integration won't go Healthy</h3>
 <table>
   <tr><th>HealthCheck error</th><th>Likely cause</th><th>Action</th></tr>
-  <tr><td>Token endpoint returned no <code>access_token</code></td><td>Client ID or secret wrong, secret revoked, or wrong region URL.</td><td>Regenerate the ASIO key (the secret only displays once — it may have been truncated on first copy). Re-enter, save.</td></tr>
-  <tr><td>HTTP 401 from <code>/v1/token</code></td><td>Same as above, or the key is disabled in ASIO.</td><td>Check the key's status in ASIO Integrations.</td></tr>
-  <tr><td>HTTP 403 on companies read after token success</td><td>Token issued but missing the <code>platform.companies.read</code> scope.</td><td>Confirm the scope is granted on the ASIO key; re-tick if needed.</td></tr>
-  <tr><td>HTTP 403 on <code>schedule-tasks</code> (RunScript)</td><td>Token missing <code>platform.automation.create</code> scope. This is the only write scope the integration requires — easy to miss when granting read-only scopes.</td><td>Add <code>platform.automation.create</code> to the ASIO key scopes and regenerate the token.</td></tr>
+  <tr><td>Token endpoint returned no <code>access_token</code></td><td>Client ID or secret wrong, secret revoked, or wrong region URL.</td><td>Regenerate the Platform key (the secret only displays once — it may have been truncated on first copy). Re-enter, save.</td></tr>
+  <tr><td>HTTP 401 from <code>/v1/token</code></td><td>Same as above, or the key is disabled in ConnectWise Platform.</td><td>Check the key's status in Platform Integrations.</td></tr>
+  <tr><td>HTTP 403 on companies read after token success</td><td>Token issued but missing the <code>platform.companies.read</code> scope.</td><td>Confirm the scope is granted on the Platform key; re-tick if needed.</td></tr>
+  <tr><td>HTTP 403 on <code>schedule-tasks</code> (RunScript)</td><td>Token missing <code>platform.automation.create</code> scope. This is the only write scope the integration requires — easy to miss when granting read-only scopes.</td><td>Add <code>platform.automation.create</code> to the Platform key scopes and regenerate the token.</td></tr>
   <tr><td>HTTP 403 on heartbeat with <code>resourceType=endpoints</code></td><td>The heartbeat endpoint requires <code>resourceType=endpoints</code> (not <code>devices</code> or omitted). A mismatch returns <code>403 "client has no access"</code> even when scopes are correct.</td><td>Ensure the heartbeat request uses <code>resourceType=endpoints</code>. This is already correct in the current integration script; if you see this error after modifying the script, check the query-string parameter.</td></tr>
 </table>
 
 <h3>9.2 Install fails: "Get-IntegrationAgentInstallToken returned nothing"</h3>
 <ul>
   <li>Confirm the Software entry has <strong>Agent Integration</strong> set under Advanced (§4.3).</li>
-  <li>Confirm the tenant is mapped to a ConnectWise company under Integration → Clients (§5).</li>
+  <li>Confirm the tenant is mapped to a ConnectWise Platform company under Integration → Clients (§5).</li>
   <li>Check the integration's audit log for the most recent <code>GetTenantInstallToken</code> call. It will name the failing step:
     <ul>
       <li><strong>Step 1</strong> = OAuth token request failed → scope/credential issue.</li>
@@ -327,7 +339,7 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
 </ul>
 
 <h3>9.3 Install fails: "This package is configured for workstations only"</h3>
-<p>The install script gates on <code>Win32_OperatingSystem.ProductType -ne 1</code> (workstation). Server install would require validating the correct <code>SYSTEM=</code> property value for ASIO server mode, which has not been done yet. Servers should be excluded from the deployment's target filter, or a separate server package should be created once the server install property is known.</p>
+<p>The install script gates on <code>Win32_OperatingSystem.ProductType -ne 1</code> (workstation). Server install would require validating the correct <code>SYSTEM=</code> property value for ConnectWise Platform server mode, which has not been done yet. Servers should be excluded from the deployment's target filter, or a separate server package should be created once the server install property is known.</p>
 
 <h3>9.4 Device shows the script's source code instead of a GUID under inventory</h3>
 <p>The <code>GetInventoryScript</code> block must use <code>Invoke-ImmyCommand { ... }</code>, not <code>return { ... }</code>. The latter returns the scriptblock AST itself to ImmyBot, which then renders it as inventory data instead of executing it.</p>
@@ -343,26 +355,33 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
 <h2 id="design-decisions">10. Design decisions &amp; trade-offs</h2>
 
 <h3>10.1 Why a fixed <code>1.0.0</code> version instead of dynamic versions?</h3>
-<p>The ASIO agent self-updates after install. The version installed today is not the version installed tomorrow. Returning the real agent version would cause ImmyBot to perceive constant drift, and in the worst case attempt downgrades when the running agent is newer than the MSI bootstrapper. Collapsing to a binary "installed-and-healthy / not-installed" check matches the agent's actual lifecycle.</p>
+<p>The ConnectWise Platform agent self-updates after install. The version installed today is not the version installed tomorrow. Returning the real agent version would cause ImmyBot to perceive constant drift, and in the worst case attempt downgrades when the running agent is newer than the MSI bootstrapper. Collapsing to a binary "installed-and-healthy / not-installed" check matches the agent's actual lifecycle.</p>
 
 <h3>10.2 Why is the token requested at install time, not version-determination time?</h3>
-<p>Earlier iterations called <code>Get-IntegrationAgentInstallToken</code> during the dynamic-versions script, so every machine doing a version check exercised the token endpoint. A token failure (transient API issue, scope problem) would then block detection across the whole fleet. Moving the call to install-time means the token endpoint is only exercised on machines being actively installed — version checks now never touch ConnectWise.</p>
+<p>Earlier iterations called <code>Get-IntegrationAgentInstallToken</code> during the dynamic-versions script, so every machine doing a version check exercised the token endpoint. A token failure (transient API issue, scope problem) would then block detection across the whole fleet. Moving the call to install-time means the token endpoint is only exercised on machines being actively installed — version checks now never touch ConnectWise Platform.</p>
 
 <h3>10.3 Why hedge the OAuth scope string?</h3>
 <p>See <a href="#scopes">§7.2</a>. Net: one broad scope string per token, applied across every call, removes the class of "token scoped for X used against endpoint gated by Y" bugs that bit us three different ways during development.</p>
 
-<h3>10.4 Why a self-hosted blob mirror for the MSI?</h3>
-<p>See <a href="#installer-hosting">§8</a>. ConnectWise's generic URL serves the file via a redirect chain ImmyBot can't follow. The blob mirror is a direct download. Trade-off: we own the freshness of the file (see the refresh process in §8).</p>
+<h3>10.4 Why does the user need to self-host the MSI?</h3>
+<p>See <a href="#installer-hosting">§8</a>. ConnectWise Platform's generic URL serves the file via a redirect chain ImmyBot can't follow. Hosting the MSI on your own storage (Azure Blob, S3, etc.) provides a direct-download URL. Trade-off: you own the freshness of the file (see the refresh guidance in §8.2).</p>
 
 <h3>10.5 Why workstation-only install?</h3>
-<p>The server install needs <code>SYSTEM=</code> set to a value other than <code>desktop</code> (likely <code>server</code>, but unconfirmed). Rather than guess and risk installing workstation mode on production servers, the install gates on <code>ProductType == 1</code>. To add server support: validate the correct property value with ConnectWise, then either branch the install script on <code>ProductType</code>, or create a separate server software package.</p>
+<p>The server install needs <code>SYSTEM=</code> set to a value other than <code>desktop</code> (likely <code>server</code>, but unconfirmed). Rather than guess and risk installing workstation mode on production servers, the install gates on <code>ProductType == 1</code>. To add server support: validate the correct property value with ConnectWise Platform, then either branch the install script on <code>ProductType</code>, or create a separate server software package.</p>
 
 <!-- ============================================================ -->
 <h2 id="changelog">11. Change history</h2>
 
+<h3>v1.2</h3>
+<ul>
+  <li><strong>Removed hardcoded blob URL</strong> — <code>Get-AsioAgentDownloadLink.ps1</code> no longer contains a specific storage URL. Users must host the barebone MSI themselves and configure the <code>$URL</code> variable in the script. See <a href="#prereqs">§2.2</a> and <a href="#installer-hosting">§8</a>.</li>
+  <li><strong>Added CI pipeline</strong> — GitHub Actions workflow runs PSScriptAnalyzer on all PowerShell scripts on push and PR.</li>
+  <li><strong>Updated API key generation path</strong> — ConnectWise Platform UI path updated to Integrations → API Access → Generate API Access.</li>
+</ul>
+
 <h3>v1.1</h3>
 <ul>
-  <li><strong>RunScript capability</strong> — added <code>IRunScriptProvider</code> via <code>POST /api/platform/v2/automation/endpoints/schedule-tasks</code>. Ephemeral script execution on ASIO endpoints.</li>
+  <li><strong>RunScript capability</strong> — added <code>IRunScriptProvider</code> via <code>POST /api/platform/v2/automation/endpoints/schedule-tasks</code>. Ephemeral script execution on ConnectWise Platform endpoints.</li>
   <li><strong>Write-scope exception</strong> — RunScript requires <code>platform.automation.create</code>, making it the only capability that carries a write scope. All other capabilities remain read-only.</li>
   <li><strong>Heartbeat resourceType correction</strong> — the heartbeat endpoint requires <code>resourceType=endpoints</code>. Earlier iterations omitted or used incorrect values, causing <code>403</code> errors.</li>
 </ul>
@@ -370,12 +389,12 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
 <h3>v1.0 (initial release)</h3>
 <p>Significant decisions captured during development:</p>
 <ul>
-  <li><strong>OAuth flow</strong> — confirmed as <code>POST /v1/token</code> → <code>Bearer access_token</code>. The earlier "secret-is-the-bearer" model in some legacy docs is not what the ASIO spec describes.</li>
+  <li><strong>OAuth flow</strong> — confirmed as <code>POST /v1/token</code> → <code>Bearer access_token</code>. The earlier "secret-is-the-bearer" model in some legacy docs is not what the ConnectWise Platform spec describes.</li>
   <li><strong>Device listing verb</strong> — the OpenAPI spec declares POST; live testing against the AU tenant requires GET-with-body. The integration uses GET. Comment in the code warns against "fixing" it.</li>
   <li><strong>Pagination</strong> — device listing is paginated at 500 endpoints/page via <code>Link: rel="next"</code>. The integration follows the header until exhausted.</li>
   <li><strong>Scope mismatch class of bug</strong> — install-token site lookup, heartbeat, and GetAgents all 403'd at various points because tokens were minted with narrower scopes than the endpoints they then called. Resolved by standardising on one broad read-scope string for every token request.</li>
-  <li><strong>SupportsRunningScripts</strong> — flipped from <code>$true</code> to <code>$false</code> to match what the integration actually implements. Setting it true caused ImmyBot to attempt script execution through ASIO and fail check-in.</li>
-  <li><strong>Token property name</strong> — confirmed as <code>TOKEN=&lt;guid&gt;</code> from the ASIO scope list and silent-install doc. Plus <code>SYSTEM=desktop</code> for install mode.</li>
+  <li><strong>SupportsRunningScripts</strong> — flipped from <code>$true</code> to <code>$false</code> to match what the integration actually implements. Setting it true caused ImmyBot to attempt script execution through ConnectWise Platform and fail check-in.</li>
+  <li><strong>Token property name</strong> — confirmed as <code>TOKEN=&lt;guid&gt;</code> from the ConnectWise Platform scope list and silent-install doc. Plus <code>SYSTEM=desktop</code> for install mode.</li>
 </ul>
 
 </div>

@@ -1,13 +1,13 @@
 ---
 layout: default
-title: CW-ASIO ImmyBot Integration Guide
+title: ConnectWise Platform ImmyBot Integration Guide
 ---
 
-<h1>ConnectWise RMM (ASIO) — ImmyBot Integration</h1>
+<h1>ConnectWise Platform — ImmyBot Integration</h1>
 
 <p>
   An ImmyBot Dynamic Integration and software package that lets ImmyBot deploy
-  and manage the ConnectWise RMM (ASIO Partner Platform) agent on Windows
+  and manage the ConnectWise Platform agent on Windows
   endpoints. Built and tested against the <strong>AU</strong> region.
 </p>
 
@@ -17,7 +17,7 @@ title: CW-ASIO ImmyBot Integration Guide
 <ul>
   <li>
     <a href="docs/index.html">
-      ConnectWise ASIO Integration Guide
+      ConnectWise Platform Integration Guide
     </a>
     — step-by-step setup, configuration, and troubleshooting
   </li>
@@ -76,9 +76,17 @@ title: CW-ASIO ImmyBot Integration Guide
 <h2>🚀 Quick Start</h2>
 <ol>
   <li>
-    <strong>Generate an ASIO API key</strong> in ConnectWise:
-    Integrations → Asio Integrations → Integrate → Generate.
+    <strong>Generate a Platform API key</strong> in ConnectWise Platform:
+    Integrations → API Access → Generate API Access.
     Grant all available scopes. Copy the secret immediately — it is only shown once.
+  </li>
+  <li>
+    <strong>Host the barebone MSI</strong>:
+    Download the ConnectWise Platform barebone MSI from
+    <code>https://setup.auplatform.connectwise.com/windows/BareboneAgent/32/ITSagent/MSI/setup</code>,
+    upload it to your own storage (Azure Blob, S3, etc.), and update the <code>$URL</code> in
+    <a href="software/Get-AsioAgentDownloadLink.ps1">Get-AsioAgentDownloadLink.ps1</a>
+    with your direct-download URL.
   </li>
   <li>
     <strong>Add the integration in ImmyBot</strong>:
@@ -88,12 +96,12 @@ title: CW-ASIO ImmyBot Integration Guide
   </li>
   <li>
     <strong>Map tenants to companies</strong>:
-    Integration → Clients tab. Each ImmyBot tenant needs to be mapped to a ConnectWise company.
+    Integration → Clients tab. Each ImmyBot tenant needs to be mapped to a ConnectWise Platform company.
   </li>
   <li>
     <strong>Create the software entry</strong>:
     Paste each <code>software/*.ps1</code> script into its slot per the table above.
-    Under Advanced, set Agent Integration to the integration you created in step 2.
+    Under Advanced, set Agent Integration to the integration you created in step 3.
     Set Uninstall's Detection String to <code>SaazOnDemand|ITSPlatform</code>.
   </li>
   <li>

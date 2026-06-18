@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    ImmyBot uninstall script for the ConnectWise RMM (ASIO / ITSPlatform) agent.
+    ImmyBot uninstall script for the ConnectWise Platform (ITSPlatform) agent.
 
 .DESCRIPTION
     Adapted from the working ConnectWise Automate uninstall pattern. Uses
