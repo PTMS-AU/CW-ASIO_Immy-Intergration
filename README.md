@@ -41,27 +41,33 @@ docs/          The full integration guide (open in a browser, or upload to Rewst
 The full guide is at [`docs/index.html`](docs/index.html).
 Quick version:
 
-1. **Generate a Platform API key** in ConnectWise Platform: Integrations → Platform Integrations → Integrate → Generate.
+1. **Generate a Platform API key** in ConnectWise Platform: Integrations → API Access → Generate API Access.
    Grant all available scopes (the integration uses six read scopes plus one
    write scope — `automation.create` for RunScript; over-granting
    on the key is harmless). Copy the secret immediately — it's only shown once.
-2. **Add the integration in ImmyBot**: Integrations → New Dynamic Integration. Paste
+2. **Host the barebone MSI**: download the ConnectWise Platform barebone MSI from
+   `https://setup.auplatform.connectwise.com/windows/BareboneAgent/32/ITSagent/MSI/setup`
+   (use a browser or `curl -L`), upload it to your own storage (Azure Blob, S3,
+   web server, etc.), and update the `$URL` in `software/Get-AsioAgentDownloadLink.ps1`
+   with your direct-download URL. See the doc's §8 for details.
+3. **Add the integration in ImmyBot**: Integrations → New Dynamic Integration. Paste
    `integration/ConnectWiseRMM-Integration.ps1`. Configure with the API endpoint
    URL, Client ID, and Client Secret. Initialise — it should go Healthy.
 3. **Map tenants to companies**: Integration → Clients tab. Each ImmyBot tenant
    needs to be mapped to a ConnectWise Platform company for installs to work.
 4. **Create the software entry**: paste each `software/*.ps1` script into its slot
    per the table above. Under Advanced, set Agent Integration to the integration
-   you created in step 2. Set Uninstall's Detection String to `SaazOnDemand|ITSPlatform`.
+   you created in step 3. Set Uninstall's Detection String to `SaazOnDemand|ITSPlatform`.
 5. **Deploy** to a test machine. Confirm it installs, registers (the test script
    verifies both), and shows up as an agent in the integration.
 
 ## Important operational notes
 
-- **The installer MSI is hosted on Azure Blob Storage**, not ConnectWise Platform's CDN.
-  ConnectWise Platform serves the generic barebone MSI via a redirect chain that ImmyBot's
-  downloader can't follow. The blob mirror is a direct download. **This means
-  the file needs refreshing periodically** — see the doc's §8 for the process.
+- **You must host the installer MSI yourself** — ConnectWise Platform serves the
+  generic barebone MSI via a redirect chain that ImmyBot's downloader can't
+  follow. Download the MSI, upload it to your own storage (Azure Blob, S3,
+  etc.), and configure the URL in `Get-AsioAgentDownloadLink.ps1`. **The hosted
+  file needs refreshing periodically** — see the doc's §8 for guidance.
   Recommend quarterly.
 - **Detection returns a fixed `1.0.0`**, not the real installed agent version.
   The agent self-updates, so the real version drifts away from any MSI bootstrapper

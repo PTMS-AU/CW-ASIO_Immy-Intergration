@@ -115,18 +115,16 @@ clearly labelled `# =====` headers. To add a new capability:
 4. Update the HTML guide's §6 (Capabilities) and §11 (Change history).
 5. Update README.md if the capability changes how users set things up.
 
-## Updating the installer MSI on blob storage
+## Updating the installer MSI
 
-This is an operational task that doesn't live in git, but commit a note when
-you do it:
+Each deployer hosts their own copy of the barebone MSI. When refreshing:
 
 1. Download the current generic MSI from
    `https://setup.auplatform.connectwise.com/windows/BareboneAgent/32/ITSagent/MSI/setup`
-2. Upload it to the blob container as `ITSPlatform.msi`, replacing the existing
-   file.
-3. Commit a note to this repo: `chore: refresh hosted MSI from ConnectWise Platform (YYYY-MM-DD)`.
-4. The script doesn't change — only the file behind the URL does. The commit
-   exists purely to record the refresh date.
+2. Upload it to your storage, replacing the existing file.
+3. The `$URL` in `Get-AsioAgentDownloadLink.ps1` stays the same (assuming
+   you're replacing the file at the same URL). No script changes needed.
+4. Optionally commit a note: `chore: refresh hosted MSI from ConnectWise Platform (YYYY-MM-DD)`.
 
 ## Regional variants
 

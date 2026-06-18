@@ -1,11 +1,15 @@
 <#
 .SYNOPSIS
     ImmyBot Dynamic Versions script for the ConnectWise Platform (ITSPlatform)
-    agent on the Australia platform.
+    agent.
 
 .DESCRIPTION
     Returns a fixed policy version of 1.0.0 paired with the generic, non-tokenized
-    Australia barebone MSI URL.
+    barebone MSI URL.
+
+    ** YOU MUST UPDATE $URL BELOW ** to point to your own hosted copy of the
+    ConnectWise Platform barebone MSI. See the README and docs for instructions
+    on downloading and hosting the MSI.
 
     The install token is not included in the URL. It must be supplied at install
     time by the install script using the MSI property TOKEN=<guid>.
@@ -18,8 +22,19 @@
 param()
 
 $Version  = "1.0.0"
-$URL      = "https://platinumfilestorage.blob.core.windows.net/installer/asio/ITSPlatform.msi"
+# ── CHANGE THIS URL ──────────────────────────────────────────────────────────
+# Point this to your own hosted copy of the ConnectWise Platform barebone MSI.
+# Download the MSI from:
+#   https://setup.auplatform.connectwise.com/windows/BareboneAgent/32/ITSagent/MSI/setup
+# Then upload it to your own storage (Azure Blob, S3, file share, etc.) and
+# paste the direct-download URL below.
+# ─────────────────────────────────────────────────────────────────────────────
+$URL      = "https://YOUR-STORAGE-ACCOUNT.blob.core.windows.net/PATH/TO/ITSPlatform.msi"
 $FileName = "ConnectWise-Platform-BareboneAgent.msi"
+
+if ($URL -match 'YOUR-STORAGE-ACCOUNT') {
+    throw "Get-AsioAgentDownloadLink: `$URL has not been configured. Update the URL in this script to point to your own hosted copy of the ConnectWise Platform barebone MSI."
+}
 
 Write-Host "Returning fixed version $Version with generic barebone MSI URL."
 

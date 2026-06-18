@@ -139,7 +139,7 @@
 <h3>2.1 ConnectWise Platform side</h3>
 <ul>
   <li>A ConnectWise Platform partner account with API access enabled.</li>
-  <li>A Platform Integration key (Client ID + Client Secret) generated under <strong>Integrations → Platform Integrations → Integrate → Generate</strong>.</li>
+  <li>A Platform Integration key (Client ID + Client Secret) generated under <strong>Integrations → API Access → Generate API Access</strong>.</li>
   <li>The API key must have the following OAuth scopes granted:
     <ul>
       <li><code>platform.companies.read</code></li>
@@ -154,13 +154,24 @@
   </li>
 </ul>
 
-<h3>2.2 ImmyBot side</h3>
+<h3>2.2 Installer MSI hosting</h3>
+<div class="callout warn">
+  <p><strong>You must host the barebone MSI yourself.</strong> ConnectWise Platform's generic download URL uses a redirect chain that ImmyBot's downloader cannot follow. You need to download the MSI once, upload it to your own storage, and paste the direct-download URL into the <code>Get-AsioAgentDownloadLink.ps1</code> script.</p>
+  <ol>
+    <li>Download the current generic MSI from <code>https://setup.auplatform.connectwise.com/windows/BareboneAgent/32/ITSagent/MSI/setup</code> (use a browser or <code>curl -L</code> to follow redirects).</li>
+    <li>Upload it to your own storage — Azure Blob Storage, AWS S3, a public file share, or any location that serves a direct-download URL.</li>
+    <li>Open <code>software/Get-AsioAgentDownloadLink.ps1</code> and replace the placeholder <code>$URL</code> value with your direct-download URL.</li>
+  </ol>
+  <p>Recommend refreshing the hosted MSI on a quarterly cadence, or whenever ConnectWise Platform announces an agent update. The agent self-updates after install, so a slightly stale bootstrapper is not harmful — but very old versions may fail to bootstrap.</p>
+</div>
+
+<h3>2.3 ImmyBot side</h3>
 <ul>
   <li>ImmyBot instance with access to the <strong>Integrations</strong> area.</li>
   <li>Permission to create and edit Software entries and Deployments.</li>
 </ul>
 
-<h3>2.3 Files</h3>
+<h3>2.4 Files</h3>
 <table>
   <tr><th>File</th><th>Where it goes</th><th>Purpose</th></tr>
   <tr><td><code>ConnectWiseRMM-Integration.ps1</code></td><td>Integrations → New Dynamic Integration</td><td>The integration itself.</td></tr>
@@ -211,7 +222,7 @@
   <li>Script: paste <code>Get-AsioAgentDownloadLink.ps1</code></li>
   <li>Desired Version: <strong>Latest</strong></li>
 </ul>
-<p>This script returns a fixed version of <code>1.0.0</code> paired with the generic (non-tokenized) barebone MSI URL. Both detection and desired version agree on <code>1.0.0</code>, so once installed, the machine reports compliant and stays compliant — the agent updates itself in the background.</p>
+<p>This script returns a fixed version of <code>1.0.0</code> paired with a barebone MSI URL that <strong>you must configure</strong> (see <a href="#prereqs">§2.2</a>). Both detection and desired version agree on <code>1.0.0</code>, so once installed, the machine reports compliant and stays compliant — the agent updates itself in the background.</p>
 
 <h3>4.3 Agent Integration</h3>
 <ul>
@@ -282,22 +293,23 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
 <!-- ============================================================ -->
 <h2 id="installer-hosting">8. Installer hosting</h2>
 
-<p>The dynamic-versions script returns this download URL:</p>
-<pre><code>https://platinumfilestorage.blob.core.windows.net/installer/asio/ITSPlatform.msi</code></pre>
+<p>The dynamic-versions script returns a download URL that <strong>you must configure</strong> to point to your own hosted copy of the ConnectWise Platform barebone MSI.</p>
 
-<p>This is <strong>our own Azure Blob Storage mirror</strong> of the ConnectWise Platform generic barebone MSI, not ConnectWise Platform's CDN. The original ConnectWise Platform URL —</p>
+<p>ConnectWise Platform's original generic download URL —</p>
 <pre><code>https://setup.auplatform.connectwise.com/windows/BareboneAgent/32/ITSagent/MSI/setup</code></pre>
 
-<p>— serves the file via a redirect chain that ImmyBot's downloader doesn't follow cleanly, causing install actions to fail to retrieve the MSI.</p>
+<p>— serves the file via a redirect chain that ImmyBot's downloader doesn't follow cleanly, causing install actions to fail to retrieve the MSI. This is why you need to host the file yourself on storage that provides a direct-download URL (Azure Blob Storage, AWS S3, a web server, etc.).</p>
 
+<h3>8.1 Setup</h3>
+<ol>
+  <li>Download the current generic MSI from the URL above (use a browser or <code>curl -L</code> to follow redirects).</li>
+  <li>Upload it to your own storage.</li>
+  <li>Open <code>software/Get-AsioAgentDownloadLink.ps1</code> and replace the placeholder <code>$URL</code> value with your direct-download URL.</li>
+</ol>
+
+<h3>8.2 Keeping the MSI fresh</h3>
 <div class="callout warn">
-  <p><strong>This is a maintenance dependency.</strong> If ConnectWise Platform releases a new barebone installer and we don't refresh the blob, deployments will silently install stale bootstrappers. Refresh process:</p>
-  <ol>
-    <li>Download the current generic MSI from <code>setup.auplatform.connectwise.com/windows/BareboneAgent/32/ITSagent/MSI/setup</code> (use a browser or <code>curl -L</code> to follow redirects).</li>
-    <li>Upload to the blob container, replacing the existing <code>ITSPlatform.msi</code>.</li>
-    <li>No script changes required — the URL is constant.</li>
-  </ol>
-  <p>Recommend doing this on a quarterly cadence, or whenever ConnectWise Platform announces an agent update.</p>
+  <p><strong>This is a maintenance dependency.</strong> If ConnectWise Platform releases a new barebone installer and you don't refresh your hosted copy, deployments will install an older bootstrapper. The agent self-updates after install, so a slightly stale MSI is not harmful — but very old versions may fail to bootstrap. Recommend refreshing quarterly or whenever ConnectWise Platform announces an agent update.</p>
 </div>
 
 <!-- ============================================================ -->
@@ -351,14 +363,21 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
 <h3>10.3 Why hedge the OAuth scope string?</h3>
 <p>See <a href="#scopes">§7.2</a>. Net: one broad scope string per token, applied across every call, removes the class of "token scoped for X used against endpoint gated by Y" bugs that bit us three different ways during development.</p>
 
-<h3>10.4 Why a self-hosted blob mirror for the MSI?</h3>
-<p>See <a href="#installer-hosting">§8</a>. ConnectWise Platform's generic URL serves the file via a redirect chain ImmyBot can't follow. The blob mirror is a direct download. Trade-off: we own the freshness of the file (see the refresh process in §8).</p>
+<h3>10.4 Why does the user need to self-host the MSI?</h3>
+<p>See <a href="#installer-hosting">§8</a>. ConnectWise Platform's generic URL serves the file via a redirect chain ImmyBot can't follow. Hosting the MSI on your own storage (Azure Blob, S3, etc.) provides a direct-download URL. Trade-off: you own the freshness of the file (see the refresh guidance in §8.2).</p>
 
 <h3>10.5 Why workstation-only install?</h3>
 <p>The server install needs <code>SYSTEM=</code> set to a value other than <code>desktop</code> (likely <code>server</code>, but unconfirmed). Rather than guess and risk installing workstation mode on production servers, the install gates on <code>ProductType == 1</code>. To add server support: validate the correct property value with ConnectWise Platform, then either branch the install script on <code>ProductType</code>, or create a separate server software package.</p>
 
 <!-- ============================================================ -->
 <h2 id="changelog">11. Change history</h2>
+
+<h3>v1.2</h3>
+<ul>
+  <li><strong>Removed hardcoded blob URL</strong> — <code>Get-AsioAgentDownloadLink.ps1</code> no longer contains a specific storage URL. Users must host the barebone MSI themselves and configure the <code>$URL</code> variable in the script. See <a href="#prereqs">§2.2</a> and <a href="#installer-hosting">§8</a>.</li>
+  <li><strong>Added CI pipeline</strong> — GitHub Actions workflow runs PSScriptAnalyzer on all PowerShell scripts on push and PR.</li>
+  <li><strong>Updated API key generation path</strong> — ConnectWise Platform UI path updated to Integrations → API Access → Generate API Access.</li>
+</ul>
 
 <h3>v1.1</h3>
 <ul>

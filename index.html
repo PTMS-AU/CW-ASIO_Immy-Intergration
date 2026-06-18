@@ -77,8 +77,16 @@ title: ConnectWise Platform ImmyBot Integration Guide
 <ol>
   <li>
     <strong>Generate a Platform API key</strong> in ConnectWise Platform:
-    Integrations → Platform Integrations → Integrate → Generate.
+    Integrations → API Access → Generate API Access.
     Grant all available scopes. Copy the secret immediately — it is only shown once.
+  </li>
+  <li>
+    <strong>Host the barebone MSI</strong>:
+    Download the ConnectWise Platform barebone MSI from
+    <code>https://setup.auplatform.connectwise.com/windows/BareboneAgent/32/ITSagent/MSI/setup</code>,
+    upload it to your own storage (Azure Blob, S3, etc.), and update the <code>$URL</code> in
+    <a href="software/Get-AsioAgentDownloadLink.ps1">Get-AsioAgentDownloadLink.ps1</a>
+    with your direct-download URL.
   </li>
   <li>
     <strong>Add the integration in ImmyBot</strong>:
@@ -93,7 +101,7 @@ title: ConnectWise Platform ImmyBot Integration Guide
   <li>
     <strong>Create the software entry</strong>:
     Paste each <code>software/*.ps1</code> script into its slot per the table above.
-    Under Advanced, set Agent Integration to the integration you created in step 2.
+    Under Advanced, set Agent Integration to the integration you created in step 3.
     Set Uninstall's Detection String to <code>SaazOnDemand|ITSPlatform</code>.
   </li>
   <li>
