@@ -148,8 +148,9 @@
       <li><code>platform.agent-token.read</code></li>
       <li><code>platform.asset.read</code></li>
       <li><code>platform.agent.read</code></li>
+      <li><code>platform.automation.create</code> (required for RunScript — see <a href="#scopes">§7.2</a>)</li>
     </ul>
-    Easiest path: tick all available scopes when generating the key. The integration only requests the read scopes above, so over-granting on the key side is harmless.
+    Easiest path: tick all available scopes when generating the key. The integration requests the read scopes above plus one write scope (<code>automation.create</code> for RunScript), so over-granting on the key side is harmless.
   </li>
 </ul>
 
@@ -253,10 +254,9 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
   <tr><td><code>ISupportsListingAgents</code></td><td>Lists endpoints for mapped companies, with online status from heartbeat</td><td><code>GET /api/platform/v2/device/categories/platform/endpoints</code>, <code>GET /api/platform/v2/device/endpoints/heartbeat</code></td></tr>
   <tr><td><code>ISupportsInventoryIdentification</code></td><td>Matches an ImmyBot computer to its ASIO endpoint by reading <code>privateendpointid</code> from the registry</td><td>Local registry — no API call</td></tr>
   <tr><td><code>ISupportsTenantInstallToken</code></td><td>Mints a per-tenant install token for the agent MSI</td><td><code>GET /companies/{id}/sites</code>, <code>POST /api/platform/v1/device/token</code></td></tr>
+  <tr><td><code>IRunScriptProvider</code></td><td>Runs scripts on ASIO endpoints (ephemeral, via schedule-tasks)</td><td><code>POST /api/platform/v2/automation/endpoints/schedule-tasks</code></td></tr>
   <tr><td><code>ISupportsHttpRequest</code></td><td>Webhook receiver (stub — logs incoming events, no actions wired yet)</td><td>Inbound only</td></tr>
 </table>
-
-<p><strong>Not implemented:</strong> <code>ISupportsRunningScripts</code>. ImmyBot runs scripts on managed machines through its own agent, not through ASIO. The <code>SupportsRunningScripts</code> flag on emitted agents is therefore <code>$false</code> — telling ImmyBot the truth about what the integration provides.</p>
 
 <!-- ============================================================ -->
 <h2 id="scopes">7. API scopes and auth model</h2>
@@ -271,10 +271,13 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
 <p>A fresh token is fetched per capability invocation; tokens are not cached between invocations.</p>
 
 <h3>7.2 Scope set requested</h3>
-<p>All four token requests in the integration request the same scope string:</p>
+<p>All token requests in the integration request the same read-scope string:</p>
 <pre><code>platform.companies.read platform.sites.read platform.devices.read platform.agent-token.read platform.asset.read platform.agent.read</code></pre>
 
 <p>This is deliberate over-granting per call. Earlier iterations requested narrower scopes per capability, and we hit a class of bug where a token minted for one scope was used against an endpoint gated by another (e.g. agent-token scope used for a sites lookup → <code>403 "client has no access"</code>). Requesting the full read surface on every token removes that whole failure class. The trade-off is that we're not running least-privilege at the call level — but the key itself already has these scopes granted, so there's no additional risk.</p>
+
+<h4>Write-scope exception: RunScript</h4>
+<p><code>IRunScriptProvider</code> is the sole capability that requires a write scope. Its token request adds <code>platform.automation.create</code> to the scope string — the schedule-tasks endpoint is a <code>POST</code> that creates ephemeral automation tasks. Every other capability in the integration remains read-only. The exception is acceptable because RunScript is an inherently mutating operation (it runs a script on a remote endpoint), so a write scope is the correct representation of what it does.</p>
 
 <!-- ============================================================ -->
 <h2 id="installer-hosting">8. Installer hosting</h2>
@@ -306,6 +309,8 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
   <tr><td>Token endpoint returned no <code>access_token</code></td><td>Client ID or secret wrong, secret revoked, or wrong region URL.</td><td>Regenerate the ASIO key (the secret only displays once — it may have been truncated on first copy). Re-enter, save.</td></tr>
   <tr><td>HTTP 401 from <code>/v1/token</code></td><td>Same as above, or the key is disabled in ASIO.</td><td>Check the key's status in ASIO Integrations.</td></tr>
   <tr><td>HTTP 403 on companies read after token success</td><td>Token issued but missing the <code>platform.companies.read</code> scope.</td><td>Confirm the scope is granted on the ASIO key; re-tick if needed.</td></tr>
+  <tr><td>HTTP 403 on <code>schedule-tasks</code> (RunScript)</td><td>Token missing <code>platform.automation.create</code> scope. This is the only write scope the integration requires — easy to miss when granting read-only scopes.</td><td>Add <code>platform.automation.create</code> to the ASIO key scopes and regenerate the token.</td></tr>
+  <tr><td>HTTP 403 on heartbeat with <code>resourceType=endpoints</code></td><td>The heartbeat endpoint requires <code>resourceType=endpoints</code> (not <code>devices</code> or omitted). A mismatch returns <code>403 "client has no access"</code> even when scopes are correct.</td><td>Ensure the heartbeat request uses <code>resourceType=endpoints</code>. This is already correct in the current integration script; if you see this error after modifying the script, check the query-string parameter.</td></tr>
 </table>
 
 <h3>9.2 Install fails: "Get-IntegrationAgentInstallToken returned nothing"</h3>
@@ -354,6 +359,15 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
 
 <!-- ============================================================ -->
 <h2 id="changelog">11. Change history</h2>
+
+<h3>v1.1</h3>
+<ul>
+  <li><strong>RunScript capability</strong> — added <code>IRunScriptProvider</code> via <code>POST /api/platform/v2/automation/endpoints/schedule-tasks</code>. Ephemeral script execution on ASIO endpoints.</li>
+  <li><strong>Write-scope exception</strong> — RunScript requires <code>platform.automation.create</code>, making it the only capability that carries a write scope. All other capabilities remain read-only.</li>
+  <li><strong>Heartbeat resourceType correction</strong> — the heartbeat endpoint requires <code>resourceType=endpoints</code>. Earlier iterations omitted or used incorrect values, causing <code>403</code> errors.</li>
+</ul>
+
+<h3>v1.0 (initial release)</h3>
 <p>Significant decisions captured during development:</p>
 <ul>
   <li><strong>OAuth flow</strong> — confirmed as <code>POST /v1/token</code> → <code>Bearer access_token</code>. The earlier "secret-is-the-bearer" model in some legacy docs is not what the ASIO spec describes.</li>
