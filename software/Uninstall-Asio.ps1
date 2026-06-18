@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    ImmyBot uninstall script for the ConnectWise RMM (ASIO / ITSPlatform) agent.
+    ImmyBot uninstall script for the ConnectWise Platform (ITSPlatform) agent.
 
 .DESCRIPTION
-    Adapted from the working ConnectWise Automate uninstall pattern. Uses
+    Adapted from the working ConnectWise Platform uninstall pattern. Uses
     Detect-Software with the $DetectionString (a regex matching the SAAZOD /
     ITSPlatform display name) to locate the installed product, parses its
     UninstallString, and runs it silently.

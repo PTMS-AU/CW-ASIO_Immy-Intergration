@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    ImmyBot Dynamic Versions script for the ConnectWise RMM (ASIO / ITSPlatform)
+    ImmyBot Dynamic Versions script for the ConnectWise Platform (ITSPlatform)
     agent on the Australia platform.
 
 .DESCRIPTION
@@ -10,7 +10,7 @@
     The install token is not included in the URL. It must be supplied at install
     time by the install script using the MSI property TOKEN=<guid>.
 
-    ASIO self-updates after install, so ImmyBot should treat this as a binary
+    The agent self-updates after install, so ImmyBot should treat this as a binary
     installed/healthy check rather than enforcing the MSI/bootstrapper version.
 #>
 
@@ -19,9 +19,9 @@ param()
 
 $Version  = "1.0.0"
 $URL      = "https://platinumfilestorage.blob.core.windows.net/installer/asio/ITSPlatform.msi"
-$FileName = "ConnectWise-ASIO-BareboneAgent.msi"
+$FileName = "ConnectWise-Platform-BareboneAgent.msi"
 
-Write-Host "Returning fixed version $Version with generic ASIO barebone MSI URL."
+Write-Host "Returning fixed version $Version with generic barebone MSI URL."
 
 $Response = New-Object PSObject -Property @{
     Versions = @(

@@ -1,7 +1,7 @@
-# ConnectWise RMM (ASIO) — ImmyBot Integration
+# ConnectWise Platform — ImmyBot Integration
 
 An ImmyBot Dynamic Integration and software package that lets ImmyBot deploy and
-manage the ConnectWise RMM (ASIO Partner Platform) agent on Windows endpoints.
+manage the ConnectWise Platform agent on Windows endpoints.
 
 Built and tested against the **AU** region
 (`openapi.service.auplatform.connectwise.com`). Works regionally — only the API
@@ -9,14 +9,14 @@ endpoint URL changes for EU/US.
 
 ## What this gives you
 
-- **List ConnectWise companies as ImmyBot clients** and map them to tenants.
-- **List ConnectWise endpoints as agents** with live online status (via the ASIO
+- **List ConnectWise Platform companies as ImmyBot clients** and map them to tenants.
+- **List ConnectWise Platform endpoints as agents** with live online status (via the
   heartbeat endpoint).
-- **Inventory identification** — match an ImmyBot computer to its ASIO endpoint
+- **Inventory identification** — match an ImmyBot computer to its ConnectWise Platform endpoint
   automatically by reading `privateendpointid` from the registry.
-- **Deploy the ASIO agent** to managed machines, with per-tenant install tokens
+- **Deploy the ConnectWise Platform agent** to managed machines, with per-tenant install tokens
   fetched at install time and passed to the MSI as `TOKEN=<guid>`.
-- **Run scripts on ASIO endpoints** (ephemeral, via schedule-tasks).
+- **Run scripts on ConnectWise Platform endpoints** (ephemeral, via schedule-tasks).
 - **Webhook receiver stub** ready for extension.
 
 ## Repo layout
@@ -38,10 +38,10 @@ docs/          The full integration guide (open in a browser, or upload to Rewst
 
 ## Getting started
 
-The full guide is at [`docs/ConnectWise-ASIO-Integration-Guide.html`](docs/ConnectWise-ASIO-Integration-Guide.html).
+The full guide is at [`docs/index.html`](docs/index.html).
 Quick version:
 
-1. **Generate an ASIO API key** in ConnectWise: Integrations → Asio Integrations → Integrate → Generate.
+1. **Generate a Platform API key** in ConnectWise Platform: Integrations → Platform Integrations → Integrate → Generate.
    Grant all available scopes (the integration uses six read scopes plus one
    write scope — `automation.create` for RunScript; over-granting
    on the key is harmless). Copy the secret immediately — it's only shown once.
@@ -49,7 +49,7 @@ Quick version:
    `integration/ConnectWiseRMM-Integration.ps1`. Configure with the API endpoint
    URL, Client ID, and Client Secret. Initialise — it should go Healthy.
 3. **Map tenants to companies**: Integration → Clients tab. Each ImmyBot tenant
-   needs to be mapped to a ConnectWise company for installs to work.
+   needs to be mapped to a ConnectWise Platform company for installs to work.
 4. **Create the software entry**: paste each `software/*.ps1` script into its slot
    per the table above. Under Advanced, set Agent Integration to the integration
    you created in step 2. Set Uninstall's Detection String to `SaazOnDemand|ITSPlatform`.
@@ -58,13 +58,13 @@ Quick version:
 
 ## Important operational notes
 
-- **The installer MSI is hosted on Azure Blob Storage**, not ConnectWise's CDN.
-  ConnectWise serves the generic barebone MSI via a redirect chain that ImmyBot's
+- **The installer MSI is hosted on Azure Blob Storage**, not ConnectWise Platform's CDN.
+  ConnectWise Platform serves the generic barebone MSI via a redirect chain that ImmyBot's
   downloader can't follow. The blob mirror is a direct download. **This means
   the file needs refreshing periodically** — see the doc's §8 for the process.
   Recommend quarterly.
 - **Detection returns a fixed `1.0.0`**, not the real installed agent version.
-  ASIO self-updates, so the real version drifts away from any MSI bootstrapper
+  The agent self-updates, so the real version drifts away from any MSI bootstrapper
   version. The pack treats the agent as a binary installed/healthy check, not
   a versioned product. See the doc's §10.1 for the reasoning.
 - **OAuth tokens request the full read scope set on every call**, plus
@@ -82,6 +82,6 @@ files in this repo. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the workflow.
 
 ## Troubleshooting
 
-See [`docs/ConnectWise-ASIO-Integration-Guide.html`](docs/ConnectWise-ASIO-Integration-Guide.html) §9.
+See [`docs/index.html`](docs/index.html) §9.
 The doc captures the specific failure modes we hit during development and what
 they meant — most likely whatever you're hitting is in there.
