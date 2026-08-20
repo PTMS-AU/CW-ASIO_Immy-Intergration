@@ -28,7 +28,7 @@ jobs:
         run: |
           $fail = 0
 
-          Get-ChildItem -Path . -Filter '*.ps1' -Recurse | ForEach-Object {
+          Get-ChildItem -Path . -Include '*.ps1','*.psm1' -Recurse | ForEach-Object {
               $errors = $null
               [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null
               if ($errors) {
@@ -37,27 +37,31 @@ jobs:
               }
           }
 
-          $src = Get-Content ./integration/ConnectWiseRMM-Integration.ps1 -Raw
-          if ($src -match "(?s)HelperSource\s*=\s*@'\r?\n(.*?)\r?\n'@") {
-              $errors = $null
-              [System.Management.Automation.Language.Parser]::ParseInput($Matches[1], [ref]$null, [ref]$errors) | Out-Null
-              if ($errors) {
-                  $fail++
-                  Write-Host "::error::HelperSource does not parse: $($errors[0].Message) (line $($errors[0].Extent.StartLineNumber))"
-              }
-          } else {
-              $fail++
-              Write-Host "::error::Could not extract HelperSource from the integration script."
-          }
-
           if ($fail -gt 0) { throw "$fail parse failure(s)." }
           Write-Host "All scripts parse."
 
-      # Hard gate. Covers the pure helper logic: client-ref parsing, Link header
-      # pagination, batching, site-id resolution, token cache expiry.
-      - name: Run helper tests
+      # Hard gate, and the cheapest signal here. ImmyBot runs integration blocks
+      # in ConstrainedLanguage mode; a normal pwsh runs FullLanguage and will
+      # happily execute code that fails in situ with "Method invocation is
+      # supported only on core types in this language mode". Static analysis is
+      # the only way to catch that without a live ImmyBot.
+      - name: ConstrainedLanguage compliance
+        shell: pwsh
+        run: ./tests/Test-ConstrainedLanguage.ps1
+
+      # Hard gate. Covers the module's pure logic: client-ref parsing, Link
+      # header pagination, batching, site-id resolution, scope selection, and
+      # the IntegrationContext-backed token cache.
+      - name: Run module tests
         shell: pwsh
         run: ./tests/Test-CwHelpers.ps1
+
+      # Hard gate. Enforces the script/module contract: every capability block
+      # imports CWPlatformAPI, and the script only calls exported functions.
+      # This is what beta.1 got wrong.
+      - name: Run integration structure tests
+        shell: pwsh
+        run: ./tests/Test-IntegrationStructure.ps1
 
       # Advisory. Errors fail the build; warnings are surfaced as annotations
       # without failing, because the warning-level baseline has not been cleaned

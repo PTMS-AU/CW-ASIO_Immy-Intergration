@@ -67,9 +67,11 @@ catch {
 # token. The integration validates this too; both ends check because the failure
 # is silent and expensive.
 $InstallToken = "$InstallToken".Trim()
-$parsedGuid = [Guid]::Empty
 
-if (-not [Guid]::TryParse($InstallToken, [ref]$parsedGuid)) {
+# Regex rather than [Guid]::TryParse — that needs [ref], and ImmyBot runs script
+# blocks in ConstrainedLanguage mode where static calls outside the core types
+# raise "Method invocation is supported only on core types in this language mode".
+if ($InstallToken -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
     $preview = if ($InstallToken.Length -gt 12) { $InstallToken.Substring(0, 12) + '...' } else { $InstallToken }
     throw "Install token is not a GUID (got '$preview', length $($InstallToken.Length)). Refusing to install an agent that cannot register. Check the integration's GetTenantInstallToken output and the tenant's company mapping."
 }

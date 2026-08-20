@@ -3,13 +3,14 @@
     Dependency-free tests for the ConnectWise Platform integration helpers.
 
 .DESCRIPTION
-    The helper functions live inside a here-string in the integration script (see
-    the SHARED HELPERS note in -Init), because ImmyBot serialises each capability
-    scriptblock independently and file-scope functions are not visible inside
-    them. That makes the extract-and-dot-source path the one genuinely novel
-    mechanism in the beta, so it is the first thing these tests exercise.
+    Tests integration/CWPlatformAPI.psm1 — the module every capability block
+    imports.
 
-    No Pester, no PSGallery — runs on a bare pwsh.
+    Structural checks on the integration script (that each block imports the
+    module, and that the module exports what the script calls) live in
+    Test-IntegrationStructure.ps1.
+
+    No Pester, no PSGallery — runs on Windows PowerShell 5.1 or pwsh 7.
 
 .EXAMPLE
     pwsh -File tests/Test-CwHelpers.ps1
@@ -22,7 +23,7 @@
 param(
     # Built with two-argument Join-Path calls so this runs on Windows
     # PowerShell 5.1 as well as pwsh 7 — the three-argument form is 7-only.
-    [string]$IntegrationScript = (Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'integration') 'ConnectWiseRMM-Integration.ps1')
+    [string]$ModulePath = (Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'integration') 'CWPlatformAPI.psm1')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,51 +54,46 @@ function Assert-True {
 }
 
 # ---------------------------------------------------------------------
-# Load: extract the helper source exactly the way a capability block does
+# Load
 # ---------------------------------------------------------------------
-Write-Host "Extracting helper source from $IntegrationScript"
-
-$src = Get-Content -LiteralPath $IntegrationScript -Raw
-if ($src -notmatch "(?s)HelperSource\s*=\s*@'\r?\n(.*?)\r?\n'@") {
-    throw "Could not find the HelperSource here-string in the integration script."
-}
-$helperSource = $Matches[1]
+Write-Host "Loading $ModulePath"
 
 $parseErrors = $null
-[System.Management.Automation.Language.Parser]::ParseInput($helperSource, [ref]$null, [ref]$parseErrors) | Out-Null
+[System.Management.Automation.Language.Parser]::ParseFile($ModulePath, [ref]$null, [ref]$parseErrors) | Out-Null
 if ($parseErrors) {
-    throw "Helper source does not parse: $($parseErrors[0].Message) (line $($parseErrors[0].Extent.StartLineNumber))"
+    throw "Module does not parse: $($parseErrors[0].Message) (line $($parseErrors[0].Extent.StartLineNumber))"
 }
 
-# Stand in for ImmyBot's $IntegrationContext.
-$IntegrationContext = [pscustomobject]@{
+# Must be global: a module has its own scope and resolves $IntegrationContext
+# from global, exactly as it does inside ImmyBot.
+$global:IntegrationContext = [pscustomobject]@{
     ApiEndpoint  = 'https://openapi.service.auplatform.connectwise.com'
     ClientId     = 'test-client'
     ClientSecret = 'test-secret'
-    ScopeRead    = 'platform.companies.read'
-    ScopeWrite   = 'platform.companies.read platform.automation.create'
-    Config       = @{
-        EnableHeartbeat       = $true
-        ClientBatchSize       = 4
-        HeartbeatResourceType = 'companies'
-        SiteLevelClients      = $false
-        PreferredSiteName     = ''
-    }
+    TokenCache   = @{}
 }
 
-. ([scriptblock]::Create($helperSource))
+Import-Module $ModulePath -Force
 
 Write-Host "`nGet-CwConfig"
-Assert-Equal -Expected 'companies' -Actual (Get-CwConfig -Name 'HeartbeatResourceType') -Because 'reads a value from a Hashtable config'
+Assert-Equal -Expected 'companies' -Actual (Get-CwConfig -Name 'HeartbeatResourceType') -Because 'reads the heartbeat resource type'
 Assert-Equal -Expected '4'         -Actual (Get-CwConfig -Name 'ClientBatchSize')       -Because 'reads a numeric value'
 Assert-Equal -Expected 'fallback'  -Actual (Get-CwConfig -Name 'NoSuchKey' -Default 'fallback') -Because 'returns the default for a missing key'
 Assert-Equal -Expected ''          -Actual (Get-CwConfig -Name 'PreferredSiteName' -Default 'x') -Because 'an empty string is a real value, not a miss'
+Assert-Equal -Expected 'True'      -Actual "$(Get-CwConfig -Name 'FailSyncOnPartialResults')" -Because 'partial syncs fail loudly by default'
+Assert-Equal -Expected 'False'     -Actual "$(Get-CwConfig -Name 'SiteLevelClients')"    -Because 'site-level mapping is off by default'
 
-# The config also has to survive arriving as a deserialised PSObject rather than
-# a Hashtable, which is build-dependent in ImmyBot.
-$IntegrationContext.Config = [pscustomobject]@{ HeartbeatResourceType = 'clients' }
-Assert-Equal -Expected 'clients' -Actual (Get-CwConfig -Name 'HeartbeatResourceType') -Because 'reads a value from a PSObject config'
-$IntegrationContext.Config = @{ HeartbeatResourceType = 'companies'; ClientBatchSize = 4; PreferredSiteName = '' }
+# Config must not depend on $IntegrationContext at all — that dependency is
+# exactly what broke the first beta in situ.
+$savedContext = $global:IntegrationContext
+$global:IntegrationContext = $null
+Assert-Equal -Expected 'companies' -Actual (Get-CwConfig -Name 'HeartbeatResourceType') -Because 'config still resolves with no IntegrationContext present'
+$global:IntegrationContext = $savedContext
+
+Write-Host "`nGet-CwScope"
+Assert-Equal -Expected 'False' -Actual "$((Get-CwScope) -match 'automation')" -Because 'the read scope carries no automation scopes'
+Assert-Equal -Expected 'True'  -Actual "$((Get-CwScope -IncludeWrite) -match 'platform\.automation\.create')" -Because 'the write scope adds automation.create for RunScript'
+Assert-Equal -Expected 'True'  -Actual "$((Get-CwScope -IncludeWrite).StartsWith((Get-CwScope)))" -Because 'the write scope is the read scope plus additions, not a separate list'
 
 Write-Host "`nResolve-CwClientRef"
 $company = Resolve-CwClientRef -ClientRef 'aaaaaaaa-1111-2222-3333-444444444444'
@@ -151,24 +147,44 @@ Assert-Equal -Expected 'site-3' -Actual (Get-CwEndpointSiteId -Endpoint ([pscust
 Assert-Equal -Expected 'site-4' -Actual (Get-CwEndpointSiteId -Endpoint ([pscustomobject]@{}) -Group ([pscustomobject]@{ siteID = 'site-4' })) -Because 'falls back to the group wrapper'
 Assert-Equal -Expected $null -Actual (Get-CwEndpointSiteId -Endpoint ([pscustomobject]@{}) -Group ([pscustomobject]@{})) -Because 'unresolvable site returns null so the caller can refuse to guess'
 
-Write-Host "`nGet-CwToken (cache behaviour, no network)"
-# Prove the cache is consulted before the network by seeding it directly; a cache
-# miss here would try to reach the token endpoint and fail the run.
-$script:CwTokenCache = @{
-    'platform.companies.read' = @{ Token = 'cached-token'; Expires = (Get-Date).AddMinutes(30) }
+Write-Host "`nConnect-CwPlatformApi (cache behaviour, no network)"
+# The token cache lives on $IntegrationContext, which is what makes it survive
+# ACROSS capability invocations rather than only within one. Seed it directly:
+# a cache miss here would try to reach the token endpoint and fail the run.
+$readScope = Get-CwScope
+$global:IntegrationContext.TokenCache = @{
+    $readScope = @{ Token = 'cached-token'; Expires = (Get-Date).AddMinutes(30) }
 }
-Assert-Equal -Expected 'cached-token' -Actual (Get-CwToken) -Because 'an unexpired cached token is reused'
+Assert-Equal -Expected 'cached-token' -Actual (Connect-CwPlatformApi) -Because 'an unexpired cached token is reused'
 
-$script:CwTokenCache['platform.companies.read'].Expires = (Get-Date).AddSeconds(-1)
+$global:IntegrationContext.TokenCache[$readScope].Expires = (Get-Date).AddSeconds(-1)
 $expired = $false
-try { Get-CwToken | Out-Null } catch { $expired = $true }
+try { Connect-CwPlatformApi | Out-Null } catch { $expired = $true }
 Assert-True -Condition $expired -Because 'an expired token is not served from cache (falls through to the network)'
 
-$script:CwTokenCache = @{}
-$noScope = $false
-$IntegrationContext.ScopeRead = ''
-try { Get-CwToken | Out-Null } catch { $noScope = $true }
-Assert-True -Condition $noScope -Because 'a missing scope string throws a clear error instead of minting a scopeless token'
+# Read and write tokens are cached separately — a read token must never be
+# handed to RunScript, which needs automation.create.
+$global:IntegrationContext.TokenCache = @{
+    (Get-CwScope)               = @{ Token = 'read-token';  Expires = (Get-Date).AddMinutes(30) }
+    (Get-CwScope -IncludeWrite) = @{ Token = 'write-token'; Expires = (Get-Date).AddMinutes(30) }
+}
+Assert-Equal -Expected 'read-token'  -Actual (Connect-CwPlatformApi) -Because 'the read scope gets the read token'
+Assert-Equal -Expected 'write-token' -Actual (Connect-CwPlatformApi -IncludeWrite) -Because 'the write scope gets its own token, not the read one'
+
+$forced = $false
+try { Connect-CwPlatformApi -Force | Out-Null } catch { $forced = $true }
+Assert-True -Condition $forced -Because '-Force bypasses the cache even when a valid token is present'
+
+$global:IntegrationContext = [pscustomobject]@{ ApiEndpoint = ''; ClientId = 'x'; ClientSecret = 'y'; TokenCache = @{} }
+$noEndpoint = $false
+try { Connect-CwPlatformApi | Out-Null } catch { $noEndpoint = $true }
+Assert-True -Condition $noEndpoint -Because 'an empty ApiEndpoint throws a clear error instead of building a bogus URL'
+
+Write-Host "`nGet-CwSiteCompanyId"
+Assert-Equal -Expected 'c1' -Actual (Get-CwSiteCompanyId -Site ([pscustomobject]@{ company = [pscustomobject]@{ id = 'c1' } })) -Because 'reads nested company.id'
+Assert-Equal -Expected 'c2' -Actual (Get-CwSiteCompanyId -Site ([pscustomobject]@{ companyID = 'c2' })) -Because 'reads companyID'
+Assert-Equal -Expected 'c3' -Actual (Get-CwSiteCompanyId -Site ([pscustomobject]@{ clientID = 'c3' })) -Because 'reads clientID'
+Assert-Equal -Expected $null -Actual (Get-CwSiteCompanyId -Site ([pscustomobject]@{})) -Because 'an unattributable site returns null rather than guessing'
 
 # ---------------------------------------------------------------------
 Write-Host ""

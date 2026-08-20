@@ -102,7 +102,39 @@ date.
 - **The OpenAPI spec YAML.** It's ConnectWise Platform's spec. Useful for reference
   during development; not appropriate for a published repo.
 
-## Adding new capability implementations
+## The integration is two files
+
+| File | Paste into ImmyBot as |
+| --- | --- |
+| `integration/CWPlatformAPI.psm1` | a **Module** named exactly `CWPlatformAPI` |
+| `integration/ConnectWiseRMM-Integration.ps1` | a **Dynamic Integration** |
+
+**The module must exist before the integration is initialised**, or every
+capability fails with "The term 'Connect-CwPlatformApi' is not recognized".
+
+Every capability block opens with `Import-Module CWPlatformAPI`. This is not
+optional and not stylistic: ImmyBot serialises each capability scriptblock
+independently, so a function defined at integration-script scope is invisible
+inside them. The shipped DattoRMM and NinjaRMM integrations do exactly the same.
+
+Two approaches that were tried and should not be repeated:
+
+- **Copy-pasting the API code into every capability** (alpha). It drifted —
+  RunScript's OAuth scope string ended up different from every other block's.
+- **Dot-sourcing helper source off `$IntegrationContext` via
+  `[scriptblock]::Create()`** (beta.1). Failed with "The term
+  'Resolve-CwClientRef' is not recognized" on every sync; ImmyBot's runspace does
+  not permit `[scriptblock]::Create()`. Note the context was never at fault —
+  arbitrary `$IntegrationContext` properties round-trip fine (NinjaRMM keeps a
+  whole nested lookup table on one).
+
+Config lives in the module's `Get-CwConfigTable`, not in the integration script.
+
+`tests/Test-IntegrationStructure.ps1` fails the build if a capability block calls
+a module function without importing the module, or calls something the module
+does not export.
+
+## Adding new capability implementations## Adding new capability implementations
 
 The integration is already structured one capability per block, separated by
 clearly labelled `# =====` headers. To add a new capability:

@@ -29,40 +29,197 @@ already correct. Both statements were wrong. Fixed.
 
 ---
 
-## 1. Structural change to validate first
+## 1. Architecture — corrected in beta.2
 
-Beta stops copy-pasting the OAuth block into every capability. The helper
-functions live in a here-string on `$IntegrationContext.HelperSource`, and each
-capability block dot-sources it:
+### What broke in beta.1
 
-```powershell
-. ([scriptblock]::Create($IntegrationContext.HelperSource))
+Every sync logged, repeatedly:
+
+```
+The term 'Resolve-CwClientRef' is not recognized as a name of a cmdlet, function,
+script file, or executable program.
 ```
 
-This is necessary because ImmyBot serialises each capability scriptblock
-independently — a function defined at file scope is **not** visible inside them,
-which is why alpha inlined the same token block five times.
+beta.1 stashed the helper source on `$IntegrationContext.HelperSource` and
+dot-sourced it per block with `[scriptblock]::Create()`.
 
-**The unknown:** whether your ImmyBot build round-trips extra properties added to
-`$IntegrationContext` (alpha only ever set three). If it does not, every
-capability fails at once.
+**My first diagnosis was wrong.** I concluded that properties added to
+`$IntegrationContext` do not survive rehydration. The shipped integrations
+disprove that outright — NinjaRMM keeps a whole nested `AgentLUT` hashtable on
+the context and *mutates it across invocations*, and DattoRMM keeps
+`ApiUrl`/`ApiKey`/`ComponentUID` there. Arbitrary context properties are fine.
 
-**How it fails safely:** HealthCheck checks for `HelperSource` explicitly and
-dot-sources it before doing anything else. So this is caught at *Initialise*,
-with a named error, rather than at first sync.
+The real cause is `[scriptblock]::Create()`, which ImmyBot's runspace does not
+permit. HealthCheck appeared to pass because it runs in the same process as
+`-Init`; the error was in the truncated portion of the log.
 
-> **Test 1.** Paste beta, configure, hit Initialise.
-> Healthy → the pattern works, continue.
-> "Integration context is missing HelperSource" → stop and tell me; there is a
-> fallback shape (inline the helpers per block) that costs duplication but has
-> no dependency on context round-tripping.
+### What beta.2 does instead
 
----
+The idiomatic ImmyBot answer, confirmed against the shipped DattoRMM and
+NinjaRMM integrations: **a module, imported at the top of every capability
+block.**
+
+```powershell
+Import-Module CWPlatformAPI
+$null = Connect-CwPlatformApi
+```
+
+This is the same shape as `Import-Module DattoRMM-API` / `Import-Module
+NinjaRMMApi`. It removes the code duplication *and* the mechanism that failed.
+
+### The constraint behind both failures: ConstrainedLanguage
+
+beta.2's first paste failed at Init with:
+
+```
+Cannot invoke method. Method invocation is supported only on core types in
+this language mode.
+```
+
+**ImmyBot runs integration script blocks in PowerShell ConstrainedLanguage
+mode.** That single fact explains both betas:
+
+| Attempt | Construct | Why it failed |
+| --- | --- | --- |
+| beta.1 | built a scriptblock at runtime to share helpers | scriptblock construction is not permitted |
+| beta.2 | `[Math]::Max`, `[Math]::Pow` | `System.Math` is not a core type |
+| beta.2 | `$hash.ContainsKey($k)` | method call on a Hashtable |
+| beta.2 | `[pscustomobject]@{...}` | the cast itself is rejected |
+
+None of it reproduces locally: a normal `pwsh` runs FullLanguage and executes all
+of it happily. So the rule is now a **CI gate**
+(`tests/Test-ConstrainedLanguage.ps1`, AST-based) rather than something to
+remember:
+
+- static member access only on core types, plus `OpResult` and `ObjectResult`;
+- no runtime scriptblock construction;
+- no `[pscustomobject]` / `[psobject]` casts;
+- a denylist of instance methods on non-core types (`AddSeconds`, `ContainsKey`,
+  `ToUpperInvariant`, …), each pointing at the operator or cmdlet to use instead.
+
+alpha's entire proven-safe surface is `[OpResult]::Ok` and
+`[string]::IsNullOrWhiteSpace`. That is the bar new code is held to.
+
+The `[pscustomobject]` one was the nastiest, and worth remembering. `Invoke-CwApi`
+returned one on every successful call, so the cast threw **inside its own try
+block** — which reported it as `HTTP 0` and then retried it four times. One
+mistake became five identical log lines and 15 seconds per call, with the real
+message buried. Two fixes: return plain hashtables (`$result.Data` reads
+identically), and only retry a status-0 failure when the message actually looks
+like a network fault, so a language-mode error now fails fast and legibly.
+
+Rewrites applied: `[pscustomobject]@{}` → plain hashtables;
+`[Math]::Max/Pow` → comparisons and a `switch`;
+`(Get-Date).AddSeconds(n)` → `(Get-Date) + (New-TimeSpan -Seconds n)`;
+`.ContainsKey($k)` → `.Keys -contains $k`; `[Guid]::TryParse` → a regex;
+`.Split('|')` → the `-split` operator; `.ToUpperInvariant()` dropped, since
+`-contains` is already case-insensitive.
+
+> Scope note: this applies to `integration/` only. The `software/` scripts run in
+> MetaScript and endpoint contexts, which are FullLanguage — alpha has shipped
+> `[IO.Path]::GetTempFileName()` in the uninstall script for as long as it has
+> existed.
+
+### You now paste TWO things
+
+| File | Paste into ImmyBot as | Order |
+| --- | --- | --- |
+| `integration/CWPlatformAPI.psm1` | a **Module** named exactly `CWPlatformAPI` | **first** |
+| `integration/ConnectWiseRMM-Integration.ps1` | a **Dynamic Integration** | second |
+
+Create the module first. If the integration initialises without it, every
+capability fails with "The term 'Connect-CwPlatformApi' is not recognized" —
+HealthCheck now detects this specific case and says so.
+
+The integration script went from ~2,470 lines to ~536. The generator build
+(`integration/src/`, `build/`) is gone; it existed only to work around the
+mechanism that turned out to be wrong.
+
+**Config now lives in the module** (`Get-CwConfigTable` at the top of
+`CWPlatformAPI.psm1`), not in the integration script. Edit there, re-save the
+module.
+
+### Also corrected from the shipped examples
+
+| Thing | beta.1 | beta.2 |
+| --- | --- | --- |
+| Webhook handler parameter | `-HttpRequestHandler` (guessed, **wrong**) | `-HandleHttpRequest` with `$httpContext`/`$body`/`$route`, returning `[ObjectResult]` |
+| Agent version | not reported | `-AgentVersion` on `New-IntegrationAgent` (both shipped integrations use it) |
+| Long-running blocks | no timeout attribute | `[ScriptTimeout(TimeoutSeconds = 600)]` on `GetAgents` |
+| Console deep-link | none | `ISupportsExternalProviderAgentUrl` (off until probe J) |
+
+The webhook is now **enabled**, because the ImmyBot side is confirmed and the
+handler is deliberately inert — it logs the payload and returns 200. That makes
+it the capture tool for probe H rather than a guess. It answers at
+`plugins/api/v1/{providerLinkId}`.
+
+## 1b. Validated in situ — 2026-08-20
+
+First full end-to-end run against the AU tenant (integration id 313, ~3,500
+endpoints across 38 linked clients).
+
+| Capability | Status | Evidence |
+| --- | --- | --- |
+| Init | working | 277–310 ms, module loads, token mints |
+| HealthCheck | working | ~650 ms on a 60-second cadence |
+| GetClients | working | paginates, 38 clients listed |
+| GetAgents | working | ~3,500 agents imported with serial, OS, tenant |
+| Heartbeat (`resourceType=companies`) | **working** | see reasoning below |
+| Agent identification | working | `PATMANWKS05` matched existing computer #5618 and assigned |
+| RunScript | working | dispatches, 320–700 ms, drives ephemeral agent sessions |
+| GetInventoryScript | registers | ran at 0 ms; the registry path itself is still unexercised |
+
+**Probe F is answered without needing the log.** Emission does
+`$onlineLookup[$endpointId] -eq $true`, so an empty heartbeat would make *every*
+agent offline, ImmyBot would find no online agent, and no ephemeral session
+could ever start. Sessions do start, so the heartbeat returns real availability.
+`resourceType=companies` is confirmed good.
+
+### Bugs this run found, in order
+
+1. `[Math]::Max` / `[Math]::Pow` — ConstrainedLanguage. Init failed.
+2. `[pscustomobject]@{}` — ConstrainedLanguage rejects the cast. Every API call
+   failed, and because it threw inside `Invoke-CwApi`'s own try block it
+   surfaced as a bogus `HTTP 0` and got retried four times.
+3. `.ContainsKey()` — ConstrainedLanguage. Caught by the new test, not by ImmyBot.
+4. `-AgentVersion 'Unknown'` — the parameter is typed `[Version]`, so the
+   placeholder copied from the DattoRMM example threw once per agent.
+
+Every one of them passed 70+ local assertions first. A normal `pwsh` runs
+FullLanguage and executes all of it happily. **This integration cannot be
+validated locally** — the tests catch regressions, the live instance finds the
+class of bug that matters.
+
+### Not yet exercised
+
+- **`ISupportsInventoryIdentification`** — `PATMANWKS05` matched on trusted
+  manufacturer + serial, which short-circuits before the inventory script runs.
+  The `privateendpointid` registry path is still unproven.
+- **`GetTenantInstallToken`** — needs the Software entry's Agent Integration
+  repointed at beta.
+- **The four changed `software/` scripts** — none pasted into the Software entry.
+- Site-level mapping, RunScript result polling, webhook payload, console URL —
+  all still off, all still needing their probes.
+
+### Operational note: the import storm
+
+Linking 38 clients at once imported ~3,500 agents, and ImmyBot enqueues
+identification for every newly imported agent. Each identification needs an
+ephemeral session, each session calls `RunScript`, and each `RunScript` creates a
+real automation task in ConnectWise — roughly one per second, sustained, until
+the backlog drains.
+
+It is volume rather than a retry loop (the heartbeat is good, so sessions
+succeed rather than timing out), but it puts thousands of tasks into a
+production console. **Link one small tenant for beta testing, not the whole
+book.**
 
 ## 2. Tests that need no new API knowledge
 
 | # | Test | Expected |
 | --- | --- | --- |
+| 0 | Create the `CWPlatformAPI` **Module** before initialising | Skipping this fails every capability with "The term 'Connect-CwPlatformApi' is not recognized". |
+| 1 | Initialise, then **run an agent sync** | HealthCheck alone is not a pass — it runs in the same process as Init and gave a false green on beta.1. The sync is the real test. |
 | 2 | Initialise → Clients tab | Company list matches alpha. Log line: `GetClients: N company record(s) after pagination.` Compare N to alpha's count — if beta finds **more**, alpha was silently truncating at a page boundary. |
 | 3 | Agent sync on a mapped tenant | Same agents as alpha, same online status. Log: `GetAgents: … SiteMode=False`, `Heartbeat: … N online.` |
 | 3b | Install to a test workstation | Install script now logs `Install token validated as a GUID.` before msiexec. A non-GUID token now fails the install instead of installing an agent that never registers. |
@@ -172,18 +329,33 @@ cap to the device listing, which may be unnecessary.
 > Note: `ClientBatchSize` currently drives **both** passes. If the device
 > listing allows more but heartbeat does not, tell me and I will split them.
 
-### Probe H — webhooks *(blocks: webhook receiver)*
+### Probe H — webhooks *(half answered)*
 
-**Tell me:** does ConnectWise Platform support outbound webhooks / event
-subscriptions at all? If so: how is an endpoint registered, which events fire,
-and what does the payload look like?
+The **ImmyBot side is confirmed** from `Example - Inbound Webhook.ps1`:
+`ISupportsHttpRequest` / `-HandleHttpRequest`, answering at
+`plugins/api/v1/{providerLinkId}`. beta.2 implements it and it is **live**.
 
-alpha's README and doc §6 both advertised a webhook receiver that was never
-implemented. Beta has a real (inert) handler gated behind
-`$BetaEnableWebhookCapability` at the top of the file, and its registration is
-wrapped in try/catch — a wrong interface name throws at *parse* time and would
-otherwise take every other capability down with it. **Leave it `$false`** until
-both the ImmyBot handler contract and the CW payload are confirmed.
+Still open on the **ConnectWise side:** does the Platform support outbound
+webhooks or event subscriptions at all? If so, how is a receiver URL registered
+and which events fire?
+
+The handler is inert by design — it logs the payload and returns 200. Point a CW
+webhook (or a manual `curl`) at the integration's plugin URL and the log will
+show you the exact payload shape, which is what any real handling needs.
+
+### Probe J — console URL for an endpoint *(blocks: agent deep-link)*
+
+`ISupportsExternalProviderAgentUrl` lets ImmyBot show a link straight to the
+device in the vendor console — DattoRMM builds
+`https://{platform}.rmm.datto.com/device/{id}`.
+
+**Tell me:** the URL of an endpoint's page in the ConnectWise Platform console,
+and which id it keys on (the same endpoint GUID we emit as `AgentId`?).
+
+Set `ConsoleUrlTemplate` in the module config to e.g.
+`https://.../endpoint/{endpointId}`. Empty (the default) returns `$null` and
+ImmyBot shows no link — a wrong URL would send techs to a 404 mid-incident,
+which is worse than no link.
 
 ### Probe I — server install *(blocks: AllowServerInstall)*
 
@@ -241,13 +413,17 @@ Plus `$BetaEnableWebhookCapability` at the **top of the file** (load-time, not i
 ## 6. Local checks
 
 ```bash
-pwsh -File tests/Test-CwHelpers.ps1        # 35 assertions, no dependencies
+pwsh -File tests/Test-ConstrainedLanguage.ps1   #  8 assertions — language-mode compliance
+pwsh -File tests/Test-CwHelpers.ps1             # 47 assertions — module logic
+pwsh -File tests/Test-IntegrationStructure.ps1  # 17 assertions — script/module contract
 ```
 
-Covers client-ref parsing, `Link` header pagination, batching, site-id
-resolution, config round-tripping as both Hashtable and PSObject, and token
-cache expiry. It extracts the helper source from the here-string the same way a
-capability block does, so it fails if that extraction ever breaks.
+The first covers client-ref parsing, `Link` header pagination, batching, site-id
+resolution, scope selection and the token cache. The second enforces the contract
+beta.1 broke: every capability block must import the module, the script may only
+call exported functions, and `[scriptblock]::Create` must not reappear.
+
+Both run on Windows PowerShell 5.1 as well as pwsh 7.
 
 CI (`.github/workflows/validate.yml`) runs the parse check and these tests as
 hard gates, plus PSScriptAnalyzer as advisory. It previously triggered on

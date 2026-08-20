@@ -32,14 +32,15 @@ running while it is being validated. Test plan and open API questions:
 ## Repo layout
 
 ```
-integration/   The ImmyBot Dynamic Integration script (paste into Integrations)
+integration/   The Dynamic Integration script + the CWPlatformAPI module it requires
 software/      The five software-package scripts (paste into the Software entry)
 docs/          The full integration guide (open in a browser, or upload to Rewst)
-tests/         Dependency-free helper tests — pwsh -File tests/Test-CwHelpers.ps1
+tests/         Dependency-free tests — pwsh -File tests/Test-CwHelpers.ps1
 ```
 
 | Folder | File | Paste into |
 | --- | --- | --- |
+| `integration/` | `CWPlatformAPI.psm1` | Modules → New Module, named `CWPlatformAPI` (**do this first**) |
 | `integration/` | `ConnectWiseRMM-Integration.ps1` | Integrations → New Dynamic Integration |
 | `software/` | `Detect-Asio.ps1` | Software → Custom Detection Script |
 | `software/` | `Get-AsioAgentDownloadLink.ps1` | Software → Dynamic Versions |
