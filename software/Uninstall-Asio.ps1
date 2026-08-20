@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
     ImmyBot uninstall script for the ConnectWise Platform (ITSPlatform) agent.
+    [v2.0.0-beta]
 
 .DESCRIPTION
     Adapted from the working ConnectWise Automate uninstall pattern. Uses
@@ -18,6 +19,14 @@
 
 .PARAMETER UninstallPassword
     Optional. If the MSI was installed with an uninstall password, supply it here.
+
+.NOTES
+    Beta fix: $UninstallLog is initialised before the loop. It used to be
+    assigned only inside the unins000.exe branch, while the Invoke-ImmyCommand
+    block referenced $using:UninstallLog unconditionally — so on the msiexec
+    path (which is the actual ITSPlatform path) the variable was never defined
+    and $using: had nothing to bind to. The uninstall itself had already
+    succeeded by then, making it look like a mystery post-uninstall failure.
 #>
 
 [CmdletBinding()]
@@ -36,9 +45,10 @@ if ($null -eq $DetectionString -or $DetectionString -eq "") {
 $Softwares = Detect-Software -RegExSoftwareSearchString $DetectionString
 
 foreach ($Software in $Softwares) {
-    $Retry = $true
-    while ($Retry) {
-        $Retry = $false
+        # Set for every path, not just the unins000 branch, so the $using:
+        # reference inside Invoke-ImmyCommand below always has something to bind.
+        $UninstallLog = $null
+
         $UninstallString = "$($Software.UninstallString)"
         $CommandlinePattern = '(?:(?:"(?<FileName>[~()\s\w:\\{}.-]*)"|(?<FileName>[~()\s\w:\\{}.-]+\.(?:exe|msi)))){1}\s*(?<ArgumentList>.+)?$'
         $CommandlineMatches = ($UninstallString | Select-String -Pattern $CommandlinePattern)
@@ -83,7 +93,6 @@ foreach ($Software in $Softwares) {
                 Remove-SoftwareRegKey -Software $Software -Force
             }
         }
-    }
 }
 
 # Belt-and-suspenders cleanup: ITSPlatform sometimes leaves the agentcore service

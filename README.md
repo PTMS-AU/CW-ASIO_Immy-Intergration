@@ -17,7 +17,17 @@ endpoint URL changes for EU/US.
 - **Deploy the ConnectWise Platform agent** to managed machines, with per-tenant install tokens
   fetched at install time and passed to the MSI as `TOKEN=<guid>`.
 - **Run scripts on ConnectWise Platform endpoints** (ephemeral, via schedule-tasks).
-- **Webhook receiver stub** ready for extension.
+
+## Branches
+
+| Branch | What it is |
+| --- | --- |
+| `alpha` | Mirrors the live ImmyBot instance. Known-good; this is what you roll back to. |
+| `beta` | v2.0.0-beta — hardening plus new capability, all flag-gated and defaulting to alpha's behaviour. Under test. |
+
+Paste the beta script into a **second** Dynamic Integration so alpha keeps
+running while it is being validated. Test plan and open API questions:
+[`docs/BETA-NOTES.md`](docs/BETA-NOTES.md).
 
 ## Repo layout
 
@@ -25,6 +35,7 @@ endpoint URL changes for EU/US.
 integration/   The ImmyBot Dynamic Integration script (paste into Integrations)
 software/      The five software-package scripts (paste into the Software entry)
 docs/          The full integration guide (open in a browser, or upload to Rewst)
+tests/         Dependency-free helper tests — pwsh -File tests/Test-CwHelpers.ps1
 ```
 
 | Folder | File | Paste into |
@@ -77,6 +88,10 @@ Quick version:
   `automation.create` for RunScript. See the doc's §7.2 — earlier per-capability scoping
   caused a class of "token scoped for X, endpoint gated by Y" bugs that all
   resolved cleanly when we standardised on one broad scope string.
+- **The heartbeat `resourceType` is volatile.** It has changed twice:
+  `endpoints` returns 403 on the AU partner key, `clients` worked and now
+  returns 400, `companies` is current. In beta it is a config value rather than
+  a literal. Never set it back to `endpoints`.
 - **Workstations only.** The install script gates on `Win32_OperatingSystem.ProductType == 1`.
   Server install needs a different `SYSTEM=` property value that hasn't been
   validated. To add server support, see the doc's §10.5.

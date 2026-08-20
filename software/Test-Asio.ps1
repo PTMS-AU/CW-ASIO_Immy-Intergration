@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    ImmyBot test script for ConnectWise Platform / ITSPlatform.
+    ImmyBot test script for ConnectWise Platform / ITSPlatform.  [v2.0.0-beta]
 
 .DESCRIPTION
     Verifies the ConnectWise Platform agent is installed, running, and registered.
@@ -12,6 +12,9 @@
 [CmdletBinding()]
 param()
 
+# A freshly installed agent has to reach ConnectWise and write back its
+# endpoint id before this can pass, so the wait is registration latency, not
+# install time. Raise TimeoutMinutes on slow links.
 $TimeoutMinutes = 5
 $SleepSeconds = 15
 $Deadline = (Get-Date).AddMinutes($TimeoutMinutes)
@@ -78,4 +81,4 @@ do {
 
 } while ((Get-Date) -lt $Deadline)
 
-throw "ConnectWise Platform agent test failed after $TimeoutMinutes minutes: $($lastReasons -join '; ')"
+throw "ConnectWise Platform agent test failed after $TimeoutMinutes minute(s) of polling: $($lastReasons -join '; '). If the service is Running but privateendpointid never appears, the agent installed but could not register — check the install token and the endpoint's outbound access to ConnectWise Platform."

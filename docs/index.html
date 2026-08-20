@@ -266,7 +266,7 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
   <tr><td><code>ISupportsInventoryIdentification</code></td><td>Matches an ImmyBot computer to its ConnectWise Platform endpoint by reading <code>privateendpointid</code> from the registry</td><td>Local registry — no API call</td></tr>
   <tr><td><code>ISupportsTenantInstallToken</code></td><td>Mints a per-tenant install token for the agent MSI</td><td><code>GET /companies/{id}/sites</code>, <code>POST /api/platform/v1/device/token</code></td></tr>
   <tr><td><code>IRunScriptProvider</code></td><td>Runs scripts on ConnectWise Platform endpoints (ephemeral, via schedule-tasks)</td><td><code>POST /api/platform/v2/automation/endpoints/schedule-tasks</code></td></tr>
-  <tr><td><code>ISupportsHttpRequest</code></td><td>Webhook receiver (stub — logs incoming events, no actions wired yet)</td><td>Inbound only</td></tr>
+  <tr><td><code>ISupportsHttpRequest</code></td><td><span class="badge warn">v2.0-beta, off by default</span> Webhook receiver. <strong>No such block existed in v1.x</strong> despite being listed here — the capability is real as of the beta line but is gated behind <code>$BetaEnableWebhookCapability</code> and takes no action until the payload shape is confirmed.</td><td>Inbound only</td></tr>
 </table>
 
 <!-- ============================================================ -->
@@ -322,7 +322,7 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
   <tr><td>HTTP 401 from <code>/v1/token</code></td><td>Same as above, or the key is disabled in ConnectWise Platform.</td><td>Check the key's status in Platform Integrations.</td></tr>
   <tr><td>HTTP 403 on companies read after token success</td><td>Token issued but missing the <code>platform.companies.read</code> scope.</td><td>Confirm the scope is granted on the Platform key; re-tick if needed.</td></tr>
   <tr><td>HTTP 403 on <code>schedule-tasks</code> (RunScript)</td><td>Token missing <code>platform.automation.create</code> scope. This is the only write scope the integration requires — easy to miss when granting read-only scopes.</td><td>Add <code>platform.automation.create</code> to the Platform key scopes and regenerate the token.</td></tr>
-  <tr><td>HTTP 403 on heartbeat with <code>resourceType=endpoints</code></td><td>The heartbeat endpoint requires <code>resourceType=endpoints</code> (not <code>devices</code> or omitted). A mismatch returns <code>403 "client has no access"</code> even when scopes are correct.</td><td>Ensure the heartbeat request uses <code>resourceType=endpoints</code>. This is already correct in the current integration script; if you see this error after modifying the script, check the query-string parameter.</td></tr>
+  <tr><td>HTTP 403 or HTTP 400 on the heartbeat call</td><td>Wrong <code>resourceType</code>. This value has changed twice: <code>endpoints</code> returns <strong>403 Forbidden</strong> on the AU partner key; <code>clients</code> worked and now returns <strong>400 "Invalid Resource Type"</strong>; <code>companies</code> is the current working value.</td><td>Use <code>resourceType=companies</code>. In v2.0-beta this is the <code>HeartbeatResourceType</code> config value in the Init block rather than a literal. <strong>Do not set it back to <code>endpoints</code></strong> — earlier revisions of this document wrongly said that was required.</td></tr>
 </table>
 
 <h3>9.2 Install fails: "Get-IntegrationAgentInstallToken returned nothing"</h3>
@@ -346,7 +346,7 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
 <p><strong>Cleanup:</strong> if a device already shows the AST blob and the inventory doesn't refresh, temporarily change the inventory script to return <code>$null</code>, force inventory re-identification, then switch back to the real script.</p>
 
 <h3>9.5 Detection shows installed but check-in reports failed</h3>
-<p>This was symptomatic of <code>SupportsRunningScripts:$true</code> being set on emitted agents when the integration didn't implement the script-execution capability. The current integration emits <code>$false</code>; if the symptom recurs, verify the flag in <code>New-IntegrationAgent</code>.</p>
+<p>This was symptomatic of <code>SupportsRunningScripts:$true</code> being set on emitted agents <em>while the integration did not implement script execution</em>. That is no longer the case: <code>IRunScriptProvider</code> has been implemented since v1.1, so the flag is correctly <code>$true</code>. If the symptom recurs, the fault is in <code>RunScript</code> itself (scope, template ID, or endpoint targeting) rather than in the flag.</p>
 
 <h3>9.6 ITSPlatform service or registry remains after uninstall</h3>
 <p>The uninstall script includes a cleanup block (<code>sc.exe delete</code> on the services, <code>Remove-Item -Recurse</code> on the registry keys). If detection still reports installed after an uninstall, run a fresh uninstall — the cleanup block is idempotent.</p>
@@ -367,10 +367,41 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
 <p>See <a href="#installer-hosting">§8</a>. ConnectWise Platform's generic URL serves the file via a redirect chain ImmyBot can't follow. Hosting the MSI on your own storage (Azure Blob, S3, etc.) provides a direct-download URL. Trade-off: you own the freshness of the file (see the refresh guidance in §8.2).</p>
 
 <h3>10.5 Why workstation-only install?</h3>
-<p>The server install needs <code>SYSTEM=</code> set to a value other than <code>desktop</code> (likely <code>server</code>, but unconfirmed). Rather than guess and risk installing workstation mode on production servers, the install gates on <code>ProductType == 1</code>. To add server support: validate the correct property value with ConnectWise Platform, then either branch the install script on <code>ProductType</code>, or create a separate server software package.</p>
+<p>The server install needs <code>SYSTEM=</code> set to a value other than <code>desktop</code> (likely <code>server</code>, but still unconfirmed). Rather than guess and risk installing workstation mode on production servers, the install gates on <code>ProductType == 1</code>.</p>
+<p>As of v2.0-beta the install script branches on <code>ProductType</code> already, behind <code>$AllowServerInstall = $false</code> with <code>$ServerSystemType = 'server'</code>. That turns the guess into a deliberate, logged choice instead of a silent one — but it is still a guess. Confirm the value with ConnectWise and test on one non-production server before enabling it: a wrong mode registers successfully but licenses and monitors incorrectly, which is worse than failing.</p>
 
 <!-- ============================================================ -->
 <h2 id="changelog">11. Change history</h2>
+
+<h3>v2.0.0-beta <span class="badge warn">under test</span></h3>
+<p>Beta line. <code>alpha</code> remains the branch that mirrors the live ImmyBot instance. Full test plan and open API questions in <a href="BETA-NOTES.md">BETA-NOTES.md</a>.</p>
+<h4>Corrections to this document</h4>
+<ul>
+  <li><strong>Heartbeat <code>resourceType</code></strong> — §9.1 and the v1.1 entry both stated <code>endpoints</code> was required and that the script already matched. Both were wrong. The working value is <code>companies</code>, and it is now a config value (<code>HeartbeatResourceType</code>) because it has changed twice.</li>
+  <li><strong><code>SupportsRunningScripts</code></strong> — §9.5 described the pre-v1.1 state as current.</li>
+  <li><strong>Webhook receiver</strong> — §6 listed <code>ISupportsHttpRequest</code> as a shipped stub. No such block existed in the script.</li>
+</ul>
+<h4>Correctness</h4>
+<ul>
+  <li><strong>GetClients now paginates</strong> — it called <code>/company/companies</code> once and emitted whatever came back. The device listing in the same API family pages at 500 via <code>Link: rel="next"</code>; a partner over that limit was silently losing companies, and an unlisted company cannot be mapped to a tenant.</li>
+  <li><strong>Partial syncs now fail loudly</strong> — a failed device-listing batch used to <code>break</code> and emit the endpoints collected so far, so one <code>429</code> or <code>502</code> mid-sweep silently truncated the fleet. Controlled by <code>FailSyncOnPartialResults</code> (default on).</li>
+  <li><strong>Install token validated as a GUID</strong> at both ends. A malformed token previously reached <code>msiexec TOKEN=</code> and installed an agent that could never register — surfacing days later as an apparent detection fault.</li>
+  <li><strong>Uninstall <code>$using:</code> fix</strong> — <code>$UninstallLog</code> was assigned only in the <code>unins000.exe</code> branch but referenced unconditionally inside <code>Invoke-ImmyCommand</code>, so the msiexec path (the real ITSPlatform path) bound an undefined variable after the uninstall had already succeeded.</li>
+  <li><strong>CI had never run</strong> — the workflow triggered on <code>main</code>, which does not exist in this repo. Now runs on <code>alpha</code>, <code>beta</code> and PRs, with a parse gate, helper unit tests, and advisory PSScriptAnalyzer.</li>
+</ul>
+<h4>Auth and transport</h4>
+<ul>
+  <li><strong>Shared helpers</strong> — the OAuth block was copy-pasted into five capabilities and had already drifted. It is now defined once and dot-sourced per block (ImmyBot serialises capability scriptblocks independently, so file-scope functions are not visible inside them).</li>
+  <li><strong>Token caching and refresh</strong> — one token per scope per invocation, refreshed at 80% of <code>expires_in</code>, re-minted once on a <code>401</code>. A long <code>GetAgents</code> run could previously outlive its own token with no refresh path.</li>
+  <li><strong>Retry with backoff</strong> on <code>429</code>/<code>5xx</code>, honouring <code>Retry-After</code>.</li>
+</ul>
+<h4>New capability, all off by default</h4>
+<ul>
+  <li><strong>Site-level client mapping</strong> (<code>SiteLevelClients</code>) — one ImmyBot client per company/site pair, so a multi-site company maps each office to its own tenant instead of GetTenantInstallToken guessing "first site wins". Endpoints whose site cannot be resolved are <em>not emitted</em> rather than filed under the wrong tenant.</li>
+  <li><strong>RunScript result polling</strong> (<code>RunScriptPollForResult</code>) — returns script output instead of a task id. Result URI is unconfirmed and therefore a config template.</li>
+  <li><strong>Webhook receiver</strong> (<code>$BetaEnableWebhookCapability</code>) — real handler, inert until the payload shape is confirmed.</li>
+  <li><strong>Server install</strong> (<code>$AllowServerInstall</code> in the install script) — the <code>SYSTEM=</code> value for servers is still unconfirmed; the beta makes the guess explicit rather than silent. See §10.5.</li>
+</ul>
 
 <h3>v1.2</h3>
 <ul>
@@ -383,7 +414,7 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
 <ul>
   <li><strong>RunScript capability</strong> — added <code>IRunScriptProvider</code> via <code>POST /api/platform/v2/automation/endpoints/schedule-tasks</code>. Ephemeral script execution on ConnectWise Platform endpoints.</li>
   <li><strong>Write-scope exception</strong> — RunScript requires <code>platform.automation.create</code>, making it the only capability that carries a write scope. All other capabilities remain read-only.</li>
-  <li><strong>Heartbeat resourceType correction</strong> — the heartbeat endpoint requires <code>resourceType=endpoints</code>. Earlier iterations omitted or used incorrect values, causing <code>403</code> errors.</li>
+  <li><strong>Heartbeat resourceType correction</strong> — set to <code>clients</code> after <code>resourceType=endpoints</code> was found to return <code>403</code> on the AU partner key. <em>(Superseded: <code>clients</code> now returns <code>400</code>. See v2.0.0-beta.)</em></li>
 </ul>
 
 <h3>v1.0 (initial release)</h3>
@@ -393,7 +424,7 @@ Set the <strong>Detection String</strong> parameter to: <code>SaazOnDemand|ITSPl
   <li><strong>Device listing verb</strong> — the OpenAPI spec declares POST; live testing against the AU tenant requires GET-with-body. The integration uses GET. Comment in the code warns against "fixing" it.</li>
   <li><strong>Pagination</strong> — device listing is paginated at 500 endpoints/page via <code>Link: rel="next"</code>. The integration follows the header until exhausted.</li>
   <li><strong>Scope mismatch class of bug</strong> — install-token site lookup, heartbeat, and GetAgents all 403'd at various points because tokens were minted with narrower scopes than the endpoints they then called. Resolved by standardising on one broad read-scope string for every token request.</li>
-  <li><strong>SupportsRunningScripts</strong> — flipped from <code>$true</code> to <code>$false</code> to match what the integration actually implements. Setting it true caused ImmyBot to attempt script execution through ConnectWise Platform and fail check-in.</li>
+  <li><strong>SupportsRunningScripts</strong> — flipped from <code>$true</code> to <code>$false</code> to match what the integration implemented <em>at the time</em>. <em>(Superseded: v1.1 added <code>IRunScriptProvider</code>, so the flag is correctly <code>$true</code> again.)</em></li>
   <li><strong>Token property name</strong> — confirmed as <code>TOKEN=&lt;guid&gt;</code> from the ConnectWise Platform scope list and silent-install doc. Plus <code>SYSTEM=desktop</code> for install mode.</li>
 </ul>
 

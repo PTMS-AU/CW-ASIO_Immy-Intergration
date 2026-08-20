@@ -1,31 +1,80 @@
 name: Validate
 
+# Alpha is the default branch and the one that mirrors the live ImmyBot
+# instance; beta is the integration line under test. The previous version of
+# this workflow triggered on `main`, which does not exist in this repo — so CI
+# had never actually run.
 on:
   push:
-    branches: [main]
+    branches: [alpha, beta, main, 'claude/**']
   pull_request:
-    branches: [main]
+    branches: [alpha, beta, main]
 
 permissions:
   contents: read
 
 jobs:
-  lint:
-    name: PSScriptAnalyzer
+  validate:
+    name: Parse, test, lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run PSScriptAnalyzer
+      # Hard gate. A file that does not parse cannot be pasted into ImmyBot.
+      # This also covers the helper source, which lives inside a here-string in
+      # the integration script and is therefore invisible to a plain file parse.
+      - name: Parse all scripts
+        shell: pwsh
+        run: |
+          $fail = 0
+
+          Get-ChildItem -Path . -Filter '*.ps1' -Recurse | ForEach-Object {
+              $errors = $null
+              [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null
+              if ($errors) {
+                  $fail++
+                  Write-Host "::error file=$($_.FullName)::$($errors[0].Message) (line $($errors[0].Extent.StartLineNumber))"
+              }
+          }
+
+          $src = Get-Content ./integration/ConnectWiseRMM-Integration.ps1 -Raw
+          if ($src -match "(?s)HelperSource\s*=\s*@'\r?\n(.*?)\r?\n'@") {
+              $errors = $null
+              [System.Management.Automation.Language.Parser]::ParseInput($Matches[1], [ref]$null, [ref]$errors) | Out-Null
+              if ($errors) {
+                  $fail++
+                  Write-Host "::error::HelperSource does not parse: $($errors[0].Message) (line $($errors[0].Extent.StartLineNumber))"
+              }
+          } else {
+              $fail++
+              Write-Host "::error::Could not extract HelperSource from the integration script."
+          }
+
+          if ($fail -gt 0) { throw "$fail parse failure(s)." }
+          Write-Host "All scripts parse."
+
+      # Hard gate. Covers the pure helper logic: client-ref parsing, Link header
+      # pagination, batching, site-id resolution, token cache expiry.
+      - name: Run helper tests
+        shell: pwsh
+        run: ./tests/Test-CwHelpers.ps1
+
+      # Advisory. Errors fail the build; warnings are surfaced as annotations
+      # without failing, because the warning-level baseline has not been cleaned
+      # up yet. Tighten to -Severity Warning,Error once it is.
+      - name: PSScriptAnalyzer
         shell: pwsh
         run: |
           Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
-          $results = @()
-          Get-ChildItem -Path . -Filter '*.ps1' -Recurse | ForEach-Object {
-              $results += Invoke-ScriptAnalyzer -Path $_.FullName -Severity Warning,Error
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+
+          $errors   = @($results | Where-Object Severity -eq 'Error')
+          $warnings = @($results | Where-Object Severity -eq 'Warning')
+
+          foreach ($r in $results) {
+              $level = if ($r.Severity -eq 'Error') { 'error' } else { 'warning' }
+              Write-Host "::${level} file=$($r.ScriptPath),line=$($r.Line)::[$($r.RuleName)] $($r.Message)"
           }
-          if ($results.Count -gt 0) {
-              $results | Format-Table -AutoSize
-              throw "$($results.Count) PSScriptAnalyzer issue(s) found."
-          }
-          Write-Host "PSScriptAnalyzer: all scripts clean."
+
+          Write-Host "PSScriptAnalyzer: $($errors.Count) error(s), $($warnings.Count) warning(s)."
+          if ($errors.Count -gt 0) { throw "$($errors.Count) PSScriptAnalyzer error(s)." }
