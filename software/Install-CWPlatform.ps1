@@ -38,6 +38,20 @@ param()
 $AllowServerInstall = $false
 $ServerSystemType   = 'server'
 
+# EXECUTION CONTEXT GUARD -- see the same note in Uninstall-CWPlatform.ps1.
+# Get-IntegrationAgentInstallToken and Invoke-ImmyCommand exist only in
+# METASCRIPT. A script left in the System/User context runs on the endpoint,
+# where neither is defined, and fails with "The term 'X' is not recognized"
+# rather than anything that points at the real cause.
+$missing = @()
+foreach ($cmd in 'Invoke-ImmyCommand', 'Get-IntegrationAgentInstallToken') {
+    if (-not (Get-Command -Name $cmd -ErrorAction SilentlyContinue)) { $missing += $cmd }
+}
+
+if ($missing.Count -gt 0) {
+    throw "Wrong execution context: $($missing -join ', ') $(if ($missing.Count -eq 1) { 'is' } else { 'are' }) not available here. This script requires ImmyBot's METASCRIPT context. Open the script in ImmyBot and set Execution Context to Metascript, then re-run."
+}
+
 if (-not $InstallerFile) {
     throw "InstallerFile was not provided by ImmyBot."
 }
@@ -48,7 +62,6 @@ if ($InstallerFile.FullName) {
     $InstallerPath = "$($InstallerFile.FullName)"
 }
 
-# This must run in MetaScript context
 try {
     $InstallToken = Get-IntegrationAgentInstallToken -ErrorAction Stop
 
@@ -57,7 +70,21 @@ try {
     }
 }
 catch {
-    throw "Get-IntegrationAgentInstallToken failed in MetaScript context: $($_.Exception.Message)"
+    # Do NOT say "failed in MetaScript context" here. The context guard above has
+    # already proven the context is correct, and blaming it sends the reader
+    # after the wrong thing -- ImmyBot's own message is the useful part, so lead
+    # with it verbatim and only then add what it means.
+    $detail = "$($_.Exception.Message)"
+    $hint   = ''
+
+    if ($detail -match 'not linked|provider link|integration is not linked') {
+        $hint = " -- The software entry's Agent Integration is not bound to the deployment that ran this. Repointing the Agent Integration is not enough on its own: open the DEPLOYMENT for this software and re-save it so ImmyBot re-establishes the link, then confirm Software > Advanced > Agent Integration points at the ConnectWise Platform integration, and that the tenant is mapped under Integration > Clients."
+    }
+    elseif ($detail -match 'no mapped') {
+        $hint = " -- The tenant is not mapped to a ConnectWise Platform company. Map it under Integration > Clients (map the one tenant by hand; do not Accept All on Suggested Mappings, which creates new tenants)."
+    }
+
+    throw "Get-IntegrationAgentInstallToken failed: $detail$hint"
 }
 
 # Validate BEFORE handing it to msiexec. If the integration returned an error
@@ -139,6 +166,35 @@ Invoke-ImmyCommand {
         }
 
         throw "ConnectWise Platform MSI install failed with exit code $($Process.ExitCode). Log: $LogPath"
+    }
+
+    # A SUCCESSFUL exit is not proof the agent installed. Exit 0 in ~15 seconds
+    # with no ITSPlatform service afterwards is the case this exists for: the
+    # MSI can decide the product is already present and no-op, and it reports
+    # that as success. Without these lines the log is the only evidence and it
+    # takes another trip to the endpoint to read it.
+    if (Test-Path -LiteralPath $LogPath) {
+        $verdict = @(Get-Content -LiteralPath $LogPath -ErrorAction SilentlyContinue |
+            Where-Object { $_ -match 'Installation (completed successfully|success or error status)|Product Version|Reconfiguration success|Removal success|already installed|Return Value 3|MainEngineThread is returning' })
+
+        if ($verdict.Count -gt 0) {
+            Write-Host "MSI log verdict lines:"
+            foreach ($line in ($verdict | Select-Object -Last 12)) { Write-Host "  $line" }
+        } else {
+            Write-Warning "No recognisable verdict line found in $LogPath."
+        }
+    }
+
+    # What actually landed. The barebone MSI is a bootstrapper -- the real agent
+    # arrives afterwards -- so report the state at this instant rather than
+    # implying the install is finished.
+    $svcNow = @(Get-Service -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '(?i)itsplatform|saaz' })
+
+    if ($svcNow.Count -gt 0) {
+        Write-Host "Agent services present now: $(($svcNow | ForEach-Object { "$($_.Name)=$($_.Status)" }) -join ', ')"
+    } else {
+        Write-Warning "No ITSPlatform or SAAZ service exists after a successful msiexec. Either the bootstrapper has not finished fetching the agent yet, or the MSI no-opped because leftover registration made it think the product was already installed. Check $LogPath and HKLM:\SOFTWARE\WOW6432Node\SAAZOD."
     }
 
     return [PSCustomObject]@{

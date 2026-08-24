@@ -42,11 +42,32 @@ tests/         Dependency-free tests — pwsh -File tests/Test-CwHelpers.ps1
 | --- | --- | --- |
 | `integration/` | `CWPlatformAPI.psm1` | Modules → New Module, named `CWPlatformAPI` (**do this first**) |
 | `integration/` | `ConnectWiseRMM-Integration.ps1` | Integrations → New Dynamic Integration |
-| `software/` | `Detect-Asio.ps1` | Software → Custom Detection Script |
-| `software/` | `Get-AsioAgentDownloadLink.ps1` | Software → Dynamic Versions |
-| `software/` | `Install-Asio.ps1` | Software → Install Script |
-| `software/` | `Uninstall-Asio.ps1` | Software → Uninstall Script |
-| `software/` | `Test-Asio.ps1` | Software → Test Script |
+| `software/` | `Detect-CWPlatform.ps1` | Software → Custom Detection Script |
+| `software/` | `Get-CWPlatformAgentDownloadLink.ps1` | Software → Dynamic Versions |
+| `software/` | `Install-CWPlatform.ps1` | Software → Install Script |
+| `software/` | `Uninstall-CWPlatform.ps1` | Software → Uninstall Script |
+| `software/` | `Test-CWPlatform.ps1` | Software → Test Script |
+
+### Execution Context — check this after pasting
+
+`Install-CWPlatform.ps1` and `Uninstall-CWPlatform.ps1` **must be set to
+MetaScript**. They call `Invoke-ImmyCommand`, `Get-IntegrationAgentInstallToken`,
+`Detect-Software` and `Remove-SoftwareRegKey`, none of which exist in the
+System/User contexts — those execute *on the endpoint*, where ImmyBot's
+server-side cmdlets are undefined.
+
+The failure is worth recognising because it does not look like a context
+problem. Every cmdlet raises "The term 'X' is not recognized", the software
+search matches nothing as a result, and ImmyBot reports it as
+`Failed to uninstall ... Detected: <version>` — which reads as a broken
+detection string. Both scripts now check their dependencies on entry and throw
+naming the setting to change.
+
+Creating a script with **New** or **Copy as New** does not necessarily carry
+over the context you need, so verify it after pasting rather than assuming.
+
+`Detect-CWPlatform.ps1` and `Test-CWPlatform.ps1` run on the endpoint and use no
+MetaScript cmdlets.
 
 ## Getting started
 
@@ -60,7 +81,7 @@ Quick version:
 2. **Host the barebone MSI**: download the ConnectWise Platform barebone MSI from
    `https://setup.auplatform.connectwise.com/windows/BareboneAgent/32/ITSagent/MSI/setup`
    (use a browser or `curl -L`), upload it to your own storage (Azure Blob, S3,
-   web server, etc.), and update the `$URL` in `software/Get-AsioAgentDownloadLink.ps1`
+   web server, etc.), and update the `$URL` in `software/Get-CWPlatformAgentDownloadLink.ps1`
    with your direct-download URL. See the doc's §8 for details.
 3. **Add the integration in ImmyBot**: Integrations → New Dynamic Integration. Paste
    `integration/ConnectWiseRMM-Integration.ps1`. Configure with the API endpoint
@@ -78,7 +99,7 @@ Quick version:
 - **You must host the installer MSI yourself** — ConnectWise Platform serves the
   generic barebone MSI via a redirect chain that ImmyBot's downloader can't
   follow. Download the MSI, upload it to your own storage (Azure Blob, S3,
-  etc.), and configure the URL in `Get-AsioAgentDownloadLink.ps1`. **The hosted
+  etc.), and configure the URL in `Get-CWPlatformAgentDownloadLink.ps1`. **The hosted
   file needs refreshing periodically** — see the doc's §8 for guidance.
   Recommend quarterly.
 - **Detection returns a fixed `1.0.0`**, not the real installed agent version.

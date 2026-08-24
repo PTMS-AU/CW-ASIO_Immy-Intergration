@@ -550,13 +550,34 @@ function New-CwInstallToken {
         [Parameter(Mandatory)][string]$SiteId
     )
 
+    # companyID, NOT clientID. Confirmed against the published API reference
+    # 2026-08-24 after beta.2 shipped clientID and got back
+    # HTTP 400 { "code": "bad_request", "message": "ErrClientIDNotAllowed" }.
+    # The spec's own 400 example is ErrCompanyIDNotProvided, so the field was
+    # simply absent. Do not "tidy" this back to clientID -- see the note about
+    # the heartbeat resourceType at the top of this file; this API family has
+    # retired "client" terminology once already.
+    # tests/Test-CwHelpers.ps1 guards both names.
     $body = @{
-        clientID = $CompanyId
-        siteID   = $SiteId
+        companyID = $CompanyId
+        siteID    = $SiteId
     } | ConvertTo-Json -Depth 5
 
-    $resp = (Invoke-CwApi -Uri "$($IntegrationContext.ApiEndpoint)/api/platform/v1/device/token" `
-        -Method Post -Body $body -TimeoutSec 30).Data
+    # Log the identifiers being sent. Invoke-CwApi reports the URI and the
+    # response body but never the request body, which is the half that matters
+    # when this endpoint rejects a pairing.
+    Write-Host "New-CwInstallToken: POST device/token companyID=$CompanyId siteID=$SiteId"
+
+    try {
+        $resp = (Invoke-CwApi -Uri "$($IntegrationContext.ApiEndpoint)/api/platform/v1/device/token" `
+            -Method Post -Body $body -TimeoutSec 30).Data
+    }
+    catch {
+        # Re-throw carrying the identifiers. Invoke-CwApi reports the URI and the
+        # response body but not the request body, which is the half that matters
+        # here.
+        throw "device/token failed for companyID=$CompanyId siteID=$SiteId. $($_.Exception.Message)"
+    }
 
     if ($null -eq $resp) { throw "device/token returned null for company $CompanyId site $SiteId" }
 

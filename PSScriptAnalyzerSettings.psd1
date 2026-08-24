@@ -7,8 +7,12 @@
         # capability blocks hand back.
         'PSAvoidUsingWriteHost',
 
-        # Uninstall-Asio.ps1 takes -UninstallPassword as a plain string because
-        # ImmyBot's software entry passes it that way. Not our contract to change.
+        # Uninstall-CWPlatform.ps1 consumes $UninstallPassword as a plain string
+        # because ImmyBot's software entry supplies it that way. Not our contract
+        # to change. (It is now an ambient variable rather than a declared
+        # parameter — see the note in that script — so these rules may no longer
+        # fire on it. Retained so the exclusion does not have to be rediscovered
+        # if the shape changes back.)
         'PSAvoidUsingPlainTextForPassword',
         'PSAvoidUsingConvertToSecureStringWithPlainText',
 

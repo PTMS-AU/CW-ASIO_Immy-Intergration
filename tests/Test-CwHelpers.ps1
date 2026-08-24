@@ -186,6 +186,29 @@ Assert-Equal -Expected 'c2' -Actual (Get-CwSiteCompanyId -Site ([pscustomobject]
 Assert-Equal -Expected 'c3' -Actual (Get-CwSiteCompanyId -Site ([pscustomobject]@{ clientID = 'c3' })) -Because 'reads clientID'
 Assert-Equal -Expected $null -Actual (Get-CwSiteCompanyId -Site ([pscustomobject]@{})) -Because 'an unattributable site returns null rather than guessing'
 
+Write-Host "`nNew-CwInstallToken request body"
+
+# beta.2 shipped clientID here and the live API answered
+#   HTTP 400 { "code": "bad_request", "message": "ErrClientIDNotAllowed" }
+# The published reference for POST /api/platform/v1/device/token takes
+# companyID and siteID. This API family has already retired "client"
+# terminology once (the heartbeat resourceType went clients -> companies), so
+# this is pinned rather than left to be re-derived from a 400 next time.
+$tokenSrc = ([System.Management.Automation.Language.Parser]::ParseFile(
+    $ModulePath, [ref]$null, [ref]$null
+).Find({
+    param($n)
+    $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $n.Name -eq 'New-CwInstallToken'
+}, $true)).Extent.Text
+
+Assert-True -Condition ($tokenSrc -match '(?m)^\s*companyID\s*=') `
+    -Because 'the request body sends companyID, as the API reference specifies'
+Assert-True -Condition ($tokenSrc -notmatch '(?m)^\s*clientID\s*=') `
+    -Because 'the request body does NOT send clientID (HTTP 400 ErrClientIDNotAllowed)'
+Assert-True -Condition ($tokenSrc -match '(?m)^\s*siteID\s*=') `
+    -Because 'the request body sends siteID'
+
 # ---------------------------------------------------------------------
 Write-Host ""
 Write-Host "$($script:Passed) passed, $($script:Failed) failed."

@@ -33,7 +33,7 @@ $URL      = "https://YOUR-STORAGE-URL/ITSPlatform.msi"
 $FileName = "ConnectWise-Platform-BareboneAgent.msi"
 
 if ($URL -match 'YOUR-STORAGE-URL') {
-    throw "Get-AsioAgentDownloadLink: `$URL has not been configured. Update the URL in this script to point to your own hosted copy of the ConnectWise Platform barebone MSI."
+    throw "Get-CWPlatformAgentDownloadLink: `$URL has not been configured. Update the URL in this script to point to your own hosted copy of the ConnectWise Platform barebone MSI."
 }
 
 Write-Host "Returning fixed version $Version with generic barebone MSI URL."

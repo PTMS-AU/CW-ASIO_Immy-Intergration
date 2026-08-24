@@ -1,0 +1,29 @@
+NO-TERMINAL OPTION
+==================
+
+Use this only if the .bat did not work. It puts the same file changes into
+your working copy, but WITHOUT the 10 commit messages -- those carry a lot of
+the reasoning, so the .bat is the better route if you can use it.
+
+STEP 1 -- delete these 5 files from your checkout first.
+They were RENAMED, so copying over the top will leave duplicates behind:
+
+    software\Detect-Asio.ps1
+    software\Get-AsioAgentDownloadLink.ps1
+    software\Install-Asio.ps1
+    software\Test-Asio.ps1
+    software\Uninstall-Asio.ps1
+
+STEP 2 -- copy everything else in this zip into the top folder of your
+CW-Platform_Immy-Integration checkout, overwriting when asked.
+
+STEP 3 -- in GitHub Desktop:
+    - create a new branch first (Branch > New Branch, based on beta)
+      call it: claude/git-handoff-planning-h9c3ah
+    - it will show ~14 changed files and 5 deletions
+    - write a commit summary, commit, Publish branch
+    - open a Pull Request targeting BETA (not alpha -- alpha is the rollback)
+
+NOTE: software\Get-CWPlatformAgentDownloadLink.ps1 in here has the PLACEHOLDER
+URL, which throws on purpose. That is intentional for the repo. Keep your real
+blob URL in the ImmyBot slot only -- do not commit it.

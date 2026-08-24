@@ -19,7 +19,7 @@ $TimeoutMinutes = 5
 $SleepSeconds = 15
 $Deadline = (Get-Date).AddMinutes($TimeoutMinutes)
 
-function Get-AsioPrivateEndpointId {
+function Get-CWPlatformPrivateEndpointId {
     $regPaths = @(
         'HKLM:\SOFTWARE\WOW6432Node\ITSPlatform',
         'HKLM:\SOFTWARE\ITSPlatform'
@@ -62,7 +62,7 @@ do {
         }
     }
 
-    $privateEndpointId = Get-AsioPrivateEndpointId
+    $privateEndpointId = Get-CWPlatformPrivateEndpointId
 
     if (-not $privateEndpointId) {
         $reasons += "privateendpointid not found in registry"

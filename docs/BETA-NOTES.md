@@ -357,16 +357,99 @@ Set `ConsoleUrlTemplate` in the module config to e.g.
 ImmyBot shows no link — a wrong URL would send techs to a 404 mid-incident,
 which is worse than no link.
 
+### Probe K — device/token field names *(RESOLVED 2026-08-24, no probe needed)*
+
+Answered by the published API reference before the worksheet was ever run.
+Kept because the wrong value cost a full install cycle and the failure gave no
+hint what to change.
+
+beta.2 shipped the request body as `clientID` and the live API answered:
+
+```
+POST {endpoint}/api/platform/v1/device/token
+{ "clientID": "<companyId>", "siteID": "<siteId>" }
+
+-> HTTP 400
+   { "code": "bad_request", "message": "ErrClientIDNotAllowed" }
+```
+
+The reference is unambiguous:
+
+| | |
+| --- | --- |
+| Body | `{ "companyID": "<uuid>", "siteID": "<uuid>" }` |
+| api-scope | `platform.devices.read` |
+| 200 | a bare JSON string — `"f4b2990c-075a-4132-967c-2fa3431e89df"` |
+| 400 | missing companyID or siteID, e.g. `ErrCompanyIDNotProvided` |
+| 401 | `access_denied` / bearer token is invalid |
+| 429 | rate limited, `text/plain` body |
+
+So `ErrClientIDNotAllowed` was the endpoint reporting an absent `companyID`,
+not a permissions problem. Both readings the worksheet proposed were wrong:
+the field name was simply incorrect.
+
+Three things follow.
+
+**The scope was never the issue.** The documented scope is
+`platform.devices.read`, which the read scope in `Get-CwScope` already
+requests. No `-IncludeWrite` and no agent-token create scope are needed — a
+POST here does not imply a write scope.
+
+**The 200 body confirms the GUID validation.** The response is a bare UUID
+string, which is exactly what `New-CwInstallToken` and the install script both
+check for. Those two gates are correct as written.
+
+**The call is get-or-create, not create.** "If a token already exists for that
+mapping, the existing value is returned." Re-running an install against the
+same company/site pairing is therefore safe and idempotent, and does not
+accumulate tokens.
+
+`tests/Test-CwHelpers.ps1` now pins `companyID`/`siteID` and fails on
+`clientID`, verified by mutation.
+
 ### Probe I — server install *(blocks: AllowServerInstall)*
 
 Not an API question — a ConnectWise support question.
 
 **Tell me:** the correct `SYSTEM=` MSI property value for a server install.
-`software/Install-Asio.ps1` has `$AllowServerInstall = $false` and
+`software/Install-CWPlatform.ps1` has `$AllowServerInstall = $false` and
 `$ServerSystemType = 'server'` (a guess). Do not enable it on production until
 confirmed; a wrong mode registers but licenses and monitors incorrectly.
 
 ---
+
+## 3b. Repointing the Agent Integration is a two-step change
+
+Found in situ 2026-08-24, on the first run that ever reached
+`GetTenantInstallToken`.
+
+Changing the Software entry's **Advanced > Agent Integration** to a new
+integration id does **not** re-link the deployments that use it. The install
+script fails with ImmyBot's own message:
+
+```
+An integration is not linked to this script. If this script was run during a
+maintenance session, re-save the deployment associated with this script's
+action to ensure the integration is linked.
+```
+
+The earlier symptom in the same session is the detection stage logging:
+
+```
+Unable to determine provider link id for ConnectWise Platform.
+Skipping dynamic version check.
+```
+
+Both are the same missing link. The fix is ImmyBot's own instruction: open the
+**deployment** for the software and re-save it. Then confirm, in order:
+
+1. Software > Advanced > Agent Integration points at the intended integration
+2. The deployment has been re-saved since that change
+3. The tenant is mapped under Integration > Clients
+
+This matters beyond the beta: integration 245 was deleted and replaced by 313,
+so **every** deployment carrying the old link needs re-saving, not just the one
+used for testing.
 
 ## 4. Config reference
 

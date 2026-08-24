@@ -154,7 +154,7 @@ Each deployer hosts their own copy of the barebone MSI. When refreshing:
 1. Download the current generic MSI from
    `https://setup.auplatform.connectwise.com/windows/BareboneAgent/32/ITSagent/MSI/setup`
 2. Upload it to your storage, replacing the existing file.
-3. The `$URL` in `Get-AsioAgentDownloadLink.ps1` stays the same (assuming
+3. The `$URL` in `Get-CWPlatformAgentDownloadLink.ps1` stays the same (assuming
    you're replacing the file at the same URL). No script changes needed.
 4. Optionally commit a note: `chore: refresh hosted MSI from ConnectWise Platform (YYYY-MM-DD)`.
 
