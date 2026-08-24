@@ -17,6 +17,12 @@
         A malformed token installs an agent that never registers, which surfaces
         days later as a detection bug rather than an install failure.
       - Optional server support behind $AllowServerInstall (see below).
+
+    Proven in situ 2026-08-24 on PT-WIN11LAB (session #425809): the agent
+    installs, starts and registers, and ConnectWise's own installer validates
+    the minted token via its checkTokenAction. The endpoint id is REUSED on
+    reinstall rather than duplicated, so there is no stale record to clear
+    from the console first — deleting it would discard the mapping.
 #>
 
 [CmdletBinding()]
@@ -105,7 +111,13 @@ if ($InstallToken -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a
 
 Write-Host "Install token validated as a GUID."
 
-Invoke-ImmyCommand {
+# -Timeout is NOT optional here. Invoke-ImmyCommand defaults to 120 seconds,
+# and this block does far more than that: de-register the old product, stop
+# services and processes, delete directories, then run an agent install whose
+# StartServices step alone waits 60s. The first real install died at
+# "Script timed out after 120 seconds" with msiexec still running, which
+# leaves the endpoint mid-install with no result reported.
+Invoke-ImmyCommand -Timeout 1500 {
     $ErrorActionPreference = "Stop"
 
     $InstallerPath      = $using:InstallerPath
@@ -132,6 +144,207 @@ Invoke-ImmyCommand {
     }
     else {
         throw "ConnectWise Platform install blocked. This script is workstation-only by default. ProductType=$($OS.ProductType). To enable servers, set `$AllowServerInstall = `$true after confirming the correct SYSTEM= value."
+    }
+
+    # ----------------------------------------------------------------
+    # Clear blocking legacy registration BEFORE msiexec.
+    #
+    # This lives here, not in the uninstall script, because the uninstall
+    # action cannot be relied on to run. ImmyBot skips it entirely when
+    # detection reports nothing -- "No action to take because the software
+    # was not detected" -- and detection correctly reports nothing when the
+    # ITSPlatform service and privateendpointid are absent. So a machine
+    # holding only SAAZOD leftovers can never reach the uninstall path, and
+    # the install is the one action that does run.
+    #
+    # Removing this is safe precisely here: the only reason this script is
+    # executing is that detection already established no working agent is
+    # present. What is being deleted is stale registration from a previous
+    # generation of the product, which is what makes msiexec exit 0 without
+    # creating a service.
+    # ----------------------------------------------------------------
+    # ----------------------------------------------------------------
+    # De-register the orphaned MSI product FIRST. This is the actual cause
+    # of the silent no-op, proven from the MSI log:
+    #
+    #   Product registered: entering maintenance mode
+    #   ProductState = 5
+    #   Skipping RemoveExistingProducts: current configuration is
+    #     maintenance mode
+    #   Feature: MainFeature; Installed: Local; Request: Null; Action: Null
+    #   Windows Installer reconfigured the product ... status: 0
+    #
+    # Windows Installer still has ITSPlatform {18F39771-...} 5.0.3.3573
+    # registered, so msiexec /i treats a fresh install as a reconfigure of
+    # something already present, does nothing, and exits 0. Every component
+    # reads Action: Null -- no files, no service, no work at all.
+    #
+    # Deleting the service and registry keys does NOT fix this. Those are
+    # the product's own state; the registration lives in the Windows
+    # Installer database and outlives them, which is exactly how this
+    # machine ended up orphaned: files gone, registration intact.
+    #
+    # So the product has to be properly uninstalled by ProductCode before
+    # an install can do anything. 1605 (not currently installed) is a
+    # success here -- it means the registration was already clean.
+    # ----------------------------------------------------------------
+    $arpRoots = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+    )
+
+    $stale = @()
+
+    foreach ($root in $arpRoots) {
+        if (-not (Test-Path $root)) { continue }
+
+        foreach ($sub in (Get-ChildItem -Path $root -ErrorAction SilentlyContinue)) {
+            $props = Get-ItemProperty -Path $sub.PSPath -ErrorAction SilentlyContinue
+            if (-not $props.DisplayName) { continue }
+            if ($props.DisplayName -notmatch '(?i)^(ITSPlatform|SaazOnDemand)$') { continue }
+
+            # The ProductCode is the key name for an MSI-installed product.
+            # De-duplicated: the same code is visible under both the 32- and
+            # 64-bit ARP views, and uninstalling twice just earns a 1605 on
+            # the second pass.
+            if ($sub.PSChildName -match '^\{[0-9A-Fa-f-]{36}\}$') {
+                $already = @($stale | Where-Object { $_.Code -eq $sub.PSChildName })
+                if ($already.Count -eq 0) {
+                    $stale += @{
+                        Code    = $sub.PSChildName
+                        Name    = "$($props.DisplayName)"
+                        Version = "$($props.DisplayVersion)"
+                    }
+                }
+            }
+        }
+    }
+
+    if ($stale.Count -eq 0) {
+        Write-Host "No existing ITSPlatform/SaazOnDemand product registration found."
+    }
+
+    foreach ($prod in $stale) {
+        Write-Host "De-registering existing product $($prod.Name) $($prod.Version) $($prod.Code) — msiexec /i no-ops while this is registered."
+
+        $rmArgs = "/x `"$($prod.Code)`" /qn /norestart REBOOT=ReallySuppress"
+        $rm = Start-Process -FilePath 'msiexec.exe' -ArgumentList $rmArgs -Wait -PassThru
+
+        if ($rm.ExitCode -in @(0, 1605, 3010, 1641)) {
+            Write-Host "  removed (exit $($rm.ExitCode))"
+        } else {
+            Write-Warning "  msiexec /x returned $($rm.ExitCode); the install may still no-op."
+        }
+    }
+
+    # Stop whatever is holding the legacy files open. Removing the
+    # directory failed in situ with:
+    #
+    #   Cannot remove item ...\SAAZOD\SAAZDPMACTL.exe:
+    #   Access to the path 'SAAZDPMACTL.exe' is denied.
+    #
+    # which on an .exe means a service or process from the previous
+    # generation is still running. Detection never reports these: it looks
+    # only at the ITSPlatform service, and these are SAAZ-named. Discovered
+    # by pattern rather than a fixed list, because the SAAZ service names
+    # are not knowable from the ImmyBot side.
+    $legacyDirs = @("$env:ProgramFiles\SAAZOD", "${env:ProgramFiles(x86)}\SAAZOD")
+
+    $legacySvc = @(Get-Service -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '(?i)itsplatform|saaz' })
+
+    # PROCESSES FIRST, THEN SERVICES. Deleting a service whose executable is
+    # still running only marks it for deletion -- the SCM keeps the entry
+    # until the last handle closes, and a machine left in that state can
+    # refuse to start a newly installed service. The first attempt did this
+    # in the wrong order (delete, then kill) and the install then failed with
+    # "Error 1920. Service 'ITSPlatform Service' (ITSPlatform) failed to
+    # start", so the order here is deliberate.
+    foreach ($d in $legacyDirs) {
+        if (-not $d) { continue }
+        $procs = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            $path = $null
+            try { $path = $_.Path } catch { $path = $null }
+            $path -and $path.StartsWith($d, [System.StringComparison]::OrdinalIgnoreCase)
+        })
+
+        foreach ($pr in $procs) {
+            try {
+                Stop-Process -Id $pr.Id -Force -ErrorAction Stop
+                Write-Host "  stopped process $($pr.ProcessName) (pid $($pr.Id)) running from $d"
+            } catch {
+                Write-Warning "  could not stop $($pr.ProcessName) (pid $($pr.Id)): $_"
+            }
+        }
+    }
+
+    if ($legacySvc.Count -gt 0) {
+        Write-Host "Stopping legacy services: $(($legacySvc | ForEach-Object { "$($_.Name)=$($_.Status)" }) -join ', ')"
+        foreach ($s in $legacySvc) {
+            try {
+                if ($s.Status -ne 'Stopped') { Stop-Service -Name $s.Name -Force -ErrorAction SilentlyContinue }
+                sc.exe delete $s.Name | Out-Null
+                Write-Host "  removed service $($s.Name)"
+            } catch {
+                Write-Warning "  could not remove service $($s.Name): $_"
+            }
+        }
+
+        Start-Sleep -Seconds 5
+
+        # A name still resolving here is marked-for-deletion, not gone, and
+        # that is a reboot-to-clear condition rather than something this
+        # script can force.
+        $stillThere = @(Get-Service -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '(?i)itsplatform|saaz' })
+
+        if ($stillThere.Count -gt 0) {
+            Write-Warning "These services are still registered after deletion, which means the SCM has them marked for deletion pending a reboot: $(($stillThere | ForEach-Object { $_.Name }) -join ', '). If the install fails with Error 1920 (service failed to start), reboot this machine and re-run -- the new agent's service cannot be created cleanly while the old entries linger."
+        }
+    }
+
+    $legacyKeys = @(
+        'HKLM:\SOFTWARE\WOW6432Node\SAAZOD',
+        'HKLM:\SOFTWARE\SAAZOD',
+        'HKLM:\SOFTWARE\WOW6432Node\ITSPlatform',
+        'HKLM:\SOFTWARE\ITSPlatform'
+    )
+
+    $cleared = @()
+
+    foreach ($k in $legacyKeys) {
+        if (Test-Path $k) {
+            $props = Get-ItemProperty -Path $k -ErrorAction SilentlyContinue
+            $note  = $k
+            if ($props.SITEID)      { $note += " (SITEID=$($props.SITEID)" }
+            if ($props.InstallDate) { $note += ", InstallDate=$($props.InstallDate)" }
+            if ($props.SITEID)      { $note += ")" }
+
+            try {
+                Remove-Item -Path $k -Recurse -Force -ErrorAction Stop
+                $cleared += $note
+            } catch {
+                Write-Warning "Could not clear ${k}: $_ -- the install may no-op while it remains."
+            }
+        }
+    }
+
+    foreach ($d in $legacyDirs) {
+        if ($d -and (Test-Path -LiteralPath $d)) {
+            try {
+                Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction Stop
+                $cleared += "directory $d"
+            } catch {
+                Write-Warning "Could not remove ${d}: $_ -- the install may no-op while it remains."
+            }
+        }
+    }
+
+    if ($cleared.Count -gt 0) {
+        Write-Host "Cleared stale registration before installing:"
+        foreach ($c in $cleared) { Write-Host "  - $c" }
+    } else {
+        Write-Host "No stale ITSPlatform or SAAZOD registration found — clean install."
     }
 
     $LogPath = Join-Path $env:TEMP "ConnectWise-Platform-install.log"
@@ -163,6 +376,25 @@ Invoke-ImmyCommand {
         if (Test-Path -LiteralPath $LogPath) {
             Write-Warning "Last 30 lines of $LogPath :"
             Get-Content -LiteralPath $LogPath -Tail 30 | ForEach-Object { Write-Warning "  $_" }
+        }
+
+        # The MSI log reports THAT the service would not start; the agent's own
+        # setup log is the only place that says why.
+        $agentLogs = @(
+            "$env:ProgramFiles\ITSPlatformSetupLogs\ITSPlatform-AppManager.log",
+            "${env:ProgramFiles(x86)}\ITSPlatformSetupLogs\ITSPlatform-AppManager.log"
+        )
+
+        foreach ($al in $agentLogs) {
+            if ($al -and (Test-Path -LiteralPath $al)) {
+                Write-Warning "Last 40 lines of $al :"
+                Get-Content -LiteralPath $al -Tail 40 -ErrorAction SilentlyContinue |
+                    ForEach-Object { Write-Warning "  $_" }
+            }
+        }
+
+        if ($Process.ExitCode -eq 1603) {
+            Write-Warning "Exit 1603 with 'Error 1920 ... failed to start' in the MSI log is usually one of: services still marked for deletion pending a reboot (see the warning above), or endpoint security blocking the new service binary. Reboot and re-run before investigating further."
         }
 
         throw "ConnectWise Platform MSI install failed with exit code $($Process.ExitCode). Log: $LogPath"

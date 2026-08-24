@@ -190,16 +190,82 @@ FullLanguage and executes all of it happily. **This integration cannot be
 validated locally** — the tests catch regressions, the live instance finds the
 class of bug that matters.
 
-### Not yet exercised
+### Not yet exercised *(as of 2026-08-20 — largely superseded, see 1c)*
 
 - **`ISupportsInventoryIdentification`** — `PATMANWKS05` matched on trusted
   manufacturer + serial, which short-circuits before the inventory script runs.
-  The `privateendpointid` registry path is still unproven.
-- **`GetTenantInstallToken`** — needs the Software entry's Agent Integration
-  repointed at beta.
-- **The four changed `software/` scripts** — none pasted into the Software entry.
+  The `privateendpointid` registry path is still unproven. **Still open.**
+- ~~**`GetTenantInstallToken`**~~ — proven 2026-08-24, see 1c.
+- ~~**The four changed `software/` scripts**~~ — proven 2026-08-24, see 1c.
 - Site-level mapping, RunScript result polling, webhook payload, console URL —
   all still off, all still needing their probes.
+
+## 1c. Full agent lifecycle proven in situ — 2026-08-24
+
+`PT-WIN11LAB`, maintenance session #425809. Uninstall and install both green,
+Detect / Install / Test / Verify all passing, result **Compliant**.
+
+This closes Tier 1 items 1 and 2 of the handoff. The whole install chain is now
+proven end to end, and the ConnectWise installer itself validated the pieces we
+could previously only assert:
+
+| Custom action inside the agent MSI | Result |
+| --- | --- |
+| `checkdiskspaceAction` | 1 |
+| `checkUrlAction` — reaches the data centre | 1 |
+| `checkTokenAction` — the token we minted | **1** |
+| `checklegacycfgAction` | 1 |
+
+So `GetTenantInstallToken` -> `device/token` -> `TOKEN=` -> agent registration
+is confirmed by ConnectWise's own installer, not just by our GUID check.
+
+### The endpoint id is REUSED, not duplicated
+
+The agent came back as `a978a23b-d258-423e-9a75-71138daeaf46` — **the same
+`privateendpointid` it had before the uninstall**. ConnectWise matched the
+machine and reissued its existing endpoint rather than creating a new one.
+
+Confirmed from the ConnectWise side as well: the endpoint came back **online
+and checking in**, and it **overwrote the existing sessions** rather than
+appearing alongside them.
+
+This corrects earlier guidance in this repo and in the handoff, which warned
+that an uninstall/reinstall would strand the old endpoint and produce a
+duplicate, and advised deleting the stale record from the ConnectWise console
+first. **Do not do that.** Deleting it discards the mapping the reinstall
+relies on. There is no duplicate to clean up.
+
+Probe E (endpoint deregistration) is therefore less important than it looked:
+reinstall is idempotent from ConnectWise's side.
+
+### Four defects this run surfaced, in order
+
+1. **The MSI product registration outlives its files.** Windows Installer still
+   held ITSPlatform `{18F39771-F9D8-4CFD-9654-F6C67C8AD9F4}` 5.0.3.3573 as
+   installed after the service, registry and files were gone, so `msiexec /i`
+   entered maintenance mode, reported `Action: Null` for every component, and
+   exited 0 in 15 seconds having done nothing. The install now de-registers by
+   ProductCode first. Note this is a state the residual cleanup can *create*.
+
+2. **`Invoke-ImmyCommand` defaults to a 120-second timeout.** The install block
+   exceeds that comfortably — `StartServices` alone waits 60s — and it died
+   mid-install with no result reported. Now `-Timeout 1500`.
+
+3. **Deleting a service whose process is still running only marks it for
+   deletion.** Doing that then installing produced
+   `Error 1920. Service 'ITSPlatform Service' (ITSPlatform) failed to start`,
+   a rollback, and exit 1603. Processes are now killed before their services,
+   and a lingering name is reported as a reboot-to-clear condition.
+
+4. **A reboot was required** to clear the services left marked-for-deletion by
+   the earlier ordering. The install succeeded on the first attempt afterwards.
+
+### Still open after this run
+
+- `ISupportsInventoryIdentification` on a machine that does **not** match by
+  serial — the last untested item in Tier 1.
+- Every deployment still carrying the deleted integration 245 needs re-saving,
+  not just the one used here. See 3b.
 
 ### Operational note: the import storm
 
